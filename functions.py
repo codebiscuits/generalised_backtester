@@ -496,11 +496,9 @@ def walk_forward(strat, printout=False):
             while training:
                 price, vol = load_data(pair)
                 print(f'Testing {scale}')
-                if scale == '1min':
-                    r_price, r_vol = price, vol
-                else:
-                    r_price, r_vol = resample_ohlc(price, vol, scale)
-                if len(r_vol) > 0:
+                if scale != '1min':
+                    price, vol = resample_ohlc(price, vol, scale)
+                if len(vol) > 0:
                     low, hi, step, div, train_length, test_length = timescales.get(scale)
                     params = f'lengths{low}-{hi}-{step}'
                     from_index, to_index = get_dates(i, train_length, test_length, 'train')
@@ -512,11 +510,11 @@ def walk_forward(strat, printout=False):
                         training = False
                     else:
                         print(f'training {i} from: {from_index}, to: {to_index}')
-                        r_price = r_price.iloc[from_index:to_index, :]
-                        r_vol = r_vol[from_index:to_index]
+                        price = price.iloc[from_index:to_index, :]
+                        vol = vol[from_index:to_index]
                         days = (len(price.index) / div)
                         backtest_range = timescales.get(scale)[:3]
-                        backtest = optimise_backtest(r_price, r_vol, backtest_range)
+                        backtest = optimise_backtest(price, vol, backtest_range)
                         train_string = f'{train_length}-{test_length}'
                         results = calc_stats_many(backtest, days, pair, scale, strat, params, train_string, i)
                         if printout:
