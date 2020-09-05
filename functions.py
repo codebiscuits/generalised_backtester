@@ -8,6 +8,7 @@ import statistics
 import time
 from finta import TA
 from finta.utils import resample
+import multiprocessing
 
 ### define functions
 
@@ -113,7 +114,11 @@ def hma_strat(price, length):
     return signals
 
 ### backtest a single set of params
-def single_backtest(price, vol, length, printout=False):
+def single_backtest(price, length):
+    printout = False
+    vol = list(price.loc[:, 'volume'])
+    # print(price.columns)
+
     startcash = 1000
     cash = startcash
     asset = 0
@@ -241,20 +246,41 @@ def single_backtest(price, vol, length, printout=False):
     if printout:
         print(f'Number of trades: {len(trade_list)}')
 
-    return {'equity curve':equity_curve, 'trades': trade_list}
+    return {'length': length, 'equity curve': equity_curve, 'trades': trade_list}
 
 ### backtests a range of settings
-def optimise_backtest(price, vol, length_range, printout=False):
+def optimise_backtest(price, length_range, printout=False):
     lengths_list = []
     trades_array = []
     eq_curves = []
     for length in range(*length_range):
         if printout:
             print(f'testing length: {length}')
-        backtest = single_backtest(price, vol, length)
+        backtest = single_backtest(price, length)
         lengths_list.append(length)
         trades_array.append(backtest['trades'])
         eq_curves.append(backtest['equity curve'])
+
+    return {'lengths': lengths_list, 'trades': trades_array, 'eq curves': eq_curves}
+
+def optimise_bt_multi(price, length_range, printout=False):
+    lengths_list = []
+    trades_array = []
+    eq_curves = []
+
+    lengths = list(range(*length_range))
+    price_list = [price] * len(lengths)
+    arguments = zip(price_list, lengths)
+
+    if printout:
+        print(f'Optimising length range: {length_range}')
+    with multiprocessing.Pool() as pool:
+        backtest = pool.starmap(single_backtest, arguments)
+    for i in backtest:
+        lengths_list.append(i.get('length'))
+        trades_array.append(i.get('trades'))
+        eq_curves.append(i.get('equity curve'))
+
 
     return {'lengths': lengths_list, 'trades': trades_array, 'eq curves': eq_curves}
 
@@ -406,14 +432,14 @@ def draw_ohlc(data, price, pair):
     plt.show()
 
 def single_test(pair, length, timescale='1min', printout=False):
-    print(f'Starting single_test at {time.ctime()[11:-8]}')
+    print(f'Starting single_test on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
     start = time.perf_counter()
 
     price, vol = load_data(pair)
     days = len(vol) / 1440
     if timescale != '1min':
         price, vol = resample_ohlc(price, vol, timescale)
-    backtest = single_backtest(price, vol, length)
+    backtest = single_backtest(price, length)
     if printout:
         print(backtest)
     calc_stats_one(backtest, days)
@@ -431,10 +457,11 @@ def test_all(strat, printout=False):
     Prints best result (according to sqn score) for each pair in each timescale
     '''
 
-    print(f'Starting tests at {time.ctime()[11:-8]}')
+    print(f'Starting tests on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
     start = time.perf_counter()
 
     pairs = create_pairs_list('USDT')
+    pairs = ['TOMOUSDT']
     timescales = {
         '1min': (300, 1001, 50), '5min': (50, 1001, 10), '15min': (10, 1001, 5), '30min': (10, 1001, 5),
         '1h': (5, 501, 2), '4h': (5, 501, 1), '12h': (5, 501, 1),
@@ -454,7 +481,7 @@ def test_all(strat, printout=False):
             if len(r_vol) > 0:
                 low, hi, step = timescales.get(scale)
                 params = f'lengths{low}-{hi}-{step}'
-                backtest = optimise_backtest(r_price, r_vol, timescales.get(scale))
+                backtest = optimise_backtest(r_price, timescales.get(scale), True)
                 results = calc_stats_many(backtest, days, pair, scale, strat, params)
                 if printout:
                     print(f'Tests recorded: {len(results.index)}')
@@ -475,14 +502,14 @@ def test_all(strat, printout=False):
     print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
 
 def walk_forward(strat, printout=False):
-    print(f'Starting tests at {time.ctime()[11:-8]}')
+    print(f'Starting tests on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
     start = time.perf_counter()
 
     timescales = {
-        '1min': (300, 1001, 50, 1440, 80000, 2000), '5min': (50, 1001, 10, 288, 18000, 450),
-        '15min': (10, 1001, 5, 96, 6000, 150), '30min': (10, 1001, 5, 48, 3000, 75),
+        '1d': (3, 301, 1, 1, 90, 1), '3d': (3, 301, 1, 0.333333, 50, 1), '1w': (3, 101, 1, 0.142857, 50, 1),
         '1h': (5, 501, 2, 24, 2000, 50), '4h': (5, 501, 1, 6, 500, 12), '12h': (5, 501, 1, 2, 180, 4),
-        '1d': (3, 301, 1, 1, 90, 1), '3d': (3, 301, 1, 0.333333, 50, 1), '1w': (3, 101, 1, 0.142857, 50, 1)
+        '15min': (10, 1001, 5, 96, 6000, 150), '30min': (10, 1001, 5, 48, 3000, 75),
+        '1min': (300, 1001, 50, 1440, 80000, 2000), '5min': (50, 1001, 10, 288, 18000, 450)
     }
 
     pairs_list = create_pairs_list('USDT')
@@ -491,16 +518,29 @@ def walk_forward(strat, printout=False):
         if printout:
             print(f'Testing {pair}')
         for scale in timescales.keys():
-            training = True
+            low, hi, step, div, train_length, test_length = timescales.get(scale)
+            params = f'lengths{low}-{hi}-{step}'
+            train_string = f'{train_length}-{test_length}'
+            ### following lines determine if some tests have already been completed and can be skipped
+            res_path = Path(f'V:/results/{strat}/walk-forward/{pair}/{scale}/{train_string}/{params}')
+            files_done = list(res_path.glob('*.csv'))
+            tests_done = [int(file.stem) for file in files_done]
             i = 0
+            for x, test in enumerate(sorted(tests_done)):
+                if x+1 != test:
+                    i = x
+                    break
+                else:
+                    i += 1
+            print(f'i starting at {i}')
+            ### main loop
+            training = True
             while training:
                 price, vol = load_data(pair)
                 print(f'Testing {scale}')
                 if scale != '1min':
                     price, vol = resample_ohlc(price, vol, scale)
                 if len(vol) > 0:
-                    low, hi, step, div, train_length, test_length = timescales.get(scale)
-                    params = f'lengths{low}-{hi}-{step}'
                     from_index, to_index = get_dates(i, train_length, test_length, 'train')
                     if (train_length + test_length) > len(price):
                         print(f'Not enough data for {pair} test')
@@ -508,14 +548,15 @@ def walk_forward(strat, printout=False):
                     elif (to_index + test_length) > len(price):
                         print(f'Not enough data for another training period, {pair} finished')
                         training = False
+                    elif i+1 in tests_done:
+                        print(f'Test {i} already completed, moving to next test')
+                        i += 1
                     else:
                         print(f'training {i} from: {from_index}, to: {to_index}')
                         price = price.iloc[from_index:to_index, :]
-                        vol = vol[from_index:to_index]
                         days = (len(price.index) / div)
                         backtest_range = timescales.get(scale)[:3]
-                        backtest = optimise_backtest(price, vol, backtest_range)
-                        train_string = f'{train_length}-{test_length}'
+                        backtest = optimise_bt_multi(price, backtest_range)
                         results = calc_stats_many(backtest, days, pair, scale, strat, params, train_string, i)
                         if printout:
                             print(f'Tests recorded: {len(results.index)}')
@@ -533,12 +574,12 @@ def walk_forward(strat, printout=False):
     seconds = round(end - start)
     print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
 
+if __name__ == '__main__':
+    # low, hi, step = (300, 1001, 50)'
+    # params = f'lengths{low}-{hi}-{step}'
 
-# low, hi, step = (300, 1001, 50)'
-# params = f'lengths{low}-{hi}-{step}'
+    # single_test('CRVUSDT', 10, '1w', True)
 
-# single_test('CRVUSDT', 10, '1w', True)
+    # test_all('hma_strat', True)
 
-# test_all('hma_strat', True)
-
-walk_forward('hma_strat', True)
+    walk_forward('hma_strat', True)
