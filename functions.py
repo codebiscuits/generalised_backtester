@@ -96,7 +96,6 @@ def resample_ohlc(price, vol, scale, mode='ohlcv'):
 
 ### Hull moving average
 def hma_calc(price, length):
-    # return wma(2 * wma(price, round(length / 2)) - wma(price, length), round(math.sqrt(length)))
     return TA.HMA(price, length)
 
 ### currently returns a list of tuples containing signals: (index, b/s, price)
@@ -112,6 +111,9 @@ def hma_strat(price, length):
             signals.append(signal)
 
     return signals
+
+# TODO i need to make a new hma_strat_forward to implement the variable length param,
+#  and then finish updating forward_run and forward_run_all to fit them to this code
 
 ### backtest a single set of params
 def single_backtest(price, length):
@@ -481,7 +483,7 @@ def test_all(strat, printout=False):
             if len(r_vol) > 0:
                 low, hi, step = timescales.get(scale)
                 params = f'lengths{low}-{hi}-{step}'
-                backtest = optimise_backtest(r_price, timescales.get(scale), True)
+                backtest = optimise_bt_multi(r_price, timescales.get(scale), True)
                 results = calc_stats_many(backtest, days, pair, scale, strat, params)
                 if printout:
                     print(f'Tests recorded: {len(results.index)}')
@@ -513,10 +515,11 @@ def walk_forward(strat, printout=False):
     }
 
     pairs_list = create_pairs_list('USDT')
-    pairs_list = ['ETHBTC', 'ETHUSDT', 'BNBUSDT', 'BTCUSDT']
+    # pairs_list = ['ETHBTC', 'ETHUSDT', 'BNBUSDT', 'BTCUSDT', 'BNBBTC']
+    pairs_list = ['BNBBTC']
     for pair in pairs_list:
         if printout:
-            print(f'Testing {pair}')
+            print(f'Testing {pair} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
         for scale in timescales.keys():
             low, hi, step, div, train_length, test_length = timescales.get(scale)
             params = f'lengths{low}-{hi}-{step}'
@@ -532,12 +535,12 @@ def walk_forward(strat, printout=False):
                     break
                 else:
                     i += 1
-            print(f'i starting at {i}')
+            # print(f'i starting at {i}')
             ### main loop
             training = True
             while training:
                 price, vol = load_data(pair)
-                print(f'Testing {scale}')
+                print(f'Testing {pair} {scale} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
                 if scale != '1min':
                     price, vol = resample_ohlc(price, vol, scale)
                 if len(vol) > 0:
@@ -545,14 +548,17 @@ def walk_forward(strat, printout=False):
                     if (train_length + test_length) > len(price):
                         print(f'Not enough data for {pair} test')
                         training = False
+                        print('*' * 40)
                     elif (to_index + test_length) > len(price):
                         print(f'Not enough data for another training period, {pair} finished')
                         training = False
+                        print('*' * 40)
                     elif i+1 in tests_done:
                         print(f'Test {i} already completed, moving to next test')
                         i += 1
                     else:
-                        print(f'training {i} from: {from_index}, to: {to_index}')
+                        num_sets = int((len(price) - train_length) / test_length)
+                        print(f'training {i} of {num_sets}\n')
                         price = price.iloc[from_index:to_index, :]
                         days = (len(price.index) / div)
                         backtest_range = timescales.get(scale)[:3]
@@ -574,6 +580,119 @@ def walk_forward(strat, printout=False):
     seconds = round(end - start)
     print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
 
+def load_results(strat, pair, timescale, train_str, params):
+    folder = Path(f'V:/results/{strat}/walk-forward/{pair}/{timescale}/{train_str}/{params}')
+    files_list = list(folder.glob('*.csv'))
+    set_num_list = [int(file.stem) for file in files_list]
+    names_list = [file.name for file in files_list]
+    df_list = [pd.read_csv(folder / name, index_col=0) for name in names_list]
+    df_dict = dict(zip(set_num_list, df_list))
+
+    # print(df_dict.get(1).columns)
+    # print(df_dict.keys())
+    return df_dict
+
+def get_best(metric, df_dict):
+    results = {}
+    for i in range(1, len(df_dict.keys())): # range starts at 1 because training sets are all numbered from 1
+        df = df_dict.get(i)
+        df = df.loc[df['num trades'] > 10]
+        best = df.sort_values(metric, ascending=False, ignore_index=True).head(1)
+        # TODO if this method doesnt produce good results, it may be because i am just choosing the highest score from
+        #  each metric in each period, when i could instead choose the middle of the widest and highest local maximum
+        if len(best.index) > 0:
+            print(f'\n\n{i} best {metric}:\nlength: {best.iloc[0, 0]}')
+            results[i] = best.iloc[0, 0]
+        else:
+            print(f'\n\n{i} empty df')
+            results[i] = None
+    return results
+
+def plot_eq(eq_curve, pair, metric):
+    plt.plot(eq_curve)
+
+    plt.xlabel('Trades')
+    plt.ylabel('Equity')
+    plt.yscale('log')
+    plt.title(f'{pair} optimised by {metric}')
+    plt.show()
+
+def forward_run(strat, pair, timescale, train_length, test_length, params, metric, single_run=True, printout=False):
+
+    # call load_data to get price and vol data
+    price, vol = load_data(pair)
+    price = price[train_length:]  # forward test starts from the beginning of the first test period
+    vol = vol[train_length:]
+    days = len(price) / 1440
+    train_string = f'{train_length // 1000}k-{test_length // 1000}k'
+    if printout:
+        print(train_string)
+
+    # call load_results to get walk-forward test results
+    df_dict = load_results(strat, pair, timescale, train_string, params)
+    if printout:
+        print(f'df_dict: {df_dict}')
+
+    # call get_best to get settings for each period for a particular metric
+    best = get_best(metric, df_dict)
+    # print(best.values())
+
+    # call backtest_forward to generate the signals
+    backtest = backtest_forward(best, price, train_length, test_length)
+    if printout:
+        print(f'backtest: {backtest}')
+
+    # call calculate to generate final statistics
+    fwd_results = calculate_one(backtest, days)
+
+    # call draw_ohlc to plot trades on ohlc chart
+    # call draw_bricks to draw renko chart
+    if single_run:
+        draw_ohlc(backtest, price, pair)
+        # draw_bars(bricks, 500)
+        # chart the equity curves of the different optimisation metrics
+        # plot_eq(backtest.get('equity curve'), pair, metric)
+        #TODO get draw_ohlc and plot_eq as subplots of the same chart
+
+    return fwd_results
+
+def forward_run_all(train_length, test_length):
+    print(f'Starting tests at {time.ctime()[11:-8]}')
+    start = time.perf_counter()
+
+    train_string = f'{train_length//1000}k-{test_length//1000}k'
+    source = Path(f'V:/results/renko_static_ohlc/walk-forward/{train_string}/{params}')
+    pairs_list = create_pairs_list('USDT', source)
+    metrics = ['sqn', 'win rate', 'pnl per day', 'avg run', 'score']
+    results = {}
+    for metric in metrics:
+        print(f'running {metric} tests')
+        results[metric] = {}
+        for pair in pairs_list:
+            # print(f'running {pair} tests')
+            final_results = forward_run(pair, train_length, test_length, metric, single_run=False)
+            results[metric][pair] = final_results
+            # print(f'results dictionary: {results}')
+
+    sqn_df = pd.DataFrame(results['sqn'])
+    winrate_df = pd.DataFrame(results['win rate'])
+    pnl_df = pd.DataFrame(results['pnl per day'])
+    avg_run_df = pd.DataFrame(results['avg run'])
+    score_df = pd.DataFrame(results['score'])
+
+    res_path = Path(f'V:/results/renko_static_ohlc/forward-run/{train_string}/{params}')
+    res_path.mkdir(parents=True, exist_ok=True)
+
+    sqn_df.to_csv(res_path / 'sqn.csv')
+    winrate_df.to_csv(res_path / 'winrate.csv')
+    pnl_df.to_csv(res_path / 'pnl_per_day.csv')
+    avg_run_df.to_csv(res_path / 'avg_run.csv')
+    score_df.to_csv(res_path / 'score.csv')
+
+    end = time.perf_counter()
+    seconds = round(end - start)
+    print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
+
 if __name__ == '__main__':
     # low, hi, step = (300, 1001, 50)'
     # params = f'lengths{low}-{hi}-{step}'
@@ -583,3 +702,6 @@ if __name__ == '__main__':
     # test_all('hma_strat', True)
 
     walk_forward('hma_strat', True)
+
+    # results = load_results('hma_strat', 'ETHBTC', '1d', '90-1', 'lengths3-301-1')
+    # get_best('sqn', results)
