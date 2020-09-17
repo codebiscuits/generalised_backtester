@@ -10,6 +10,23 @@ from finta import TA
 from finta.utils import resample
 import multiprocessing
 
+
+backtest_ranges = {
+        '1d': (3, 301, 1), '3d': (3, 301, 1), '1w': (3, 101, 1),
+        '1h': (5, 501, 2), '4h': (5, 501, 1), '12h': (5, 501, 1),
+        '15min': (10, 1001, 5), '30min': (10, 1001, 5),
+        '1min': (300, 1001, 50), '5min': (50, 1001, 10)
+        }
+
+
+walk_fwd_ranges = {
+        '1d': (3, 301, 1, 1, 90, 1), '3d': (3, 301, 1, 0.333333, 50, 1), '1w': (3, 101, 1, 0.142857, 50, 1),
+        '1h': (5, 501, 2, 24, 2000, 50), '4h': (5, 501, 1, 6, 500, 12), '12h': (5, 501, 1, 2, 180, 4),
+        '15min': (10, 1001, 5, 96, 6000, 150), '30min': (10, 1001, 5, 48, 3000, 75),
+        '1min': (300, 1001, 50, 1440, 80000, 2000), '5min': (50, 1001, 10, 288, 18000, 450)
+        }
+
+
 ### define functions
 
 def create_pairs_list(quote, source='ohlc'):
@@ -101,6 +118,7 @@ def hma_calc(price, length):
 ### currently returns a list of tuples containing signals: (index, b/s, price)
 def hma_strat(price, length):
     hma = list(hma_calc(price, length))
+
     signals = []
     for i in range(len(price)):
         if hma[i] > hma[i-2] and hma[i-1] > hma[i-3]:
@@ -112,11 +130,24 @@ def hma_strat(price, length):
 
     return signals
 
-# TODO i need to make a new hma_strat_forward to implement the variable length param,
-#  and then finish updating forward_run and forward_run_all to fit them to this code
+### currently returns a list of tuples containing signals: (index, b/s, price)
+def hma_strat_forward(best, price):
+    hma = aggregate_results(best, price)
+
+    signals = []
+    print(len(price))
+    for i in range(len(price)):
+        if hma[i] > hma[i-2] and hma[i-1] > hma[i-3]:
+            signal = (i, 'b', price)
+            signals.append(signal)
+        if hma[i] < hma[i-2] and hma[i-1] < hma[i-3]:
+            signal = (i, 's', price)
+            signals.append(signal)
+
+    return signals
 
 ### backtest a single set of params
-def single_backtest(price, length):
+def single_backtest(price, length, mode='norm', best=None, printout=False):
     printout = False
     vol = list(price.loc[:, 'volume'])
     # print(price.columns)
@@ -132,7 +163,10 @@ def single_backtest(price, length):
     position = None
 
     start_signals = time.perf_counter()
-    signals = hma_strat(price, length)
+    if mode == 'norm':
+        signals = hma_strat(price, length)
+    else:
+        signals = hma_strat_forward(best, price)
     if printout:
         print(f'Signals: {len(signals)}')
     end_signals = time.perf_counter()
@@ -141,6 +175,8 @@ def single_backtest(price, length):
 
     # counter = 0
     for i in range(len(signals)):
+        if printout:
+            print(f'Backtest {i} of {len(signals)} completed')
         # old_counter = counter
         # counter = round(100 * i / len(signals))
         # if counter %10 == 0 and old_counter != counter:
@@ -159,7 +195,7 @@ def single_backtest(price, length):
         #     ohlc_index = signals[i][0] + 1
         #     print(f'ohlc_index before: {ohlc_index}') ####
         #     trade_vol = 0
-        #     cash = comm * asset * close_list[i]
+        #     cash = comm * asset * close_list[ohlc_index]
         #     while trade_vol < cash and ohlc_index < (len(close_list)-1 and ohlc_limit):
         #         trade_vol += vol[ohlc_index]
         #         trade_vol /= 2 # volume figures are for buys and sells combined, i can only draw on half the liquidity
@@ -177,8 +213,8 @@ def single_backtest(price, length):
             if printout:
                 print(f'ohlc_index before: {ohlc_index}')
             trade_vol = 0
-            asset = cash * comm / close_list[i] # initial calculation for position size
-            cash_value = comm * asset * close_list[i]  # position is in base currency but volume is given in quote
+            asset = cash * comm / close_list[ohlc_index] # initial calculation for position size
+            cash_value = comm * asset * close_list[ohlc_index]  # position is in base currency but volume is given in quote
             while trade_vol < cash_value and ohlc_index < len(close_list) - 1 and ohlc_index < ohlc_limit:
                 try:
                     trade_vol += vol[ohlc_index]
@@ -203,7 +239,7 @@ def single_backtest(price, length):
             if printout:
                 print(f'ohlc_index before: {ohlc_index}') ####
             trade_vol = 0
-            cash = comm * asset * close_list[i]
+            cash = comm * asset * close_list[ohlc_index]
             mins = 1
             while trade_vol < cash and ohlc_index < len(close_list) - 1 and ohlc_index < ohlc_limit:
                 mins += 1
@@ -227,8 +263,8 @@ def single_backtest(price, length):
             if printout:
                 print(f'ohlc_index before: {ohlc_index}') ####
             trade_vol = 0
-            asset = cash * comm / close_list[i]
-            cash_value = comm * asset * close_list[i]  # position is in base currency but volume is given in quote
+            asset = cash * comm / close_list[ohlc_index]
+            cash_value = comm * asset * close_list[ohlc_index]  # position is in base currency but volume is given in quote
             mins = 1
             while trade_vol < cash_value and ohlc_index < len(close_list) - 1 and ohlc_index < ohlc_limit:
                 mins += 1
@@ -464,11 +500,7 @@ def test_all(strat, printout=False):
 
     pairs = create_pairs_list('USDT')
     pairs = ['TOMOUSDT']
-    timescales = {
-        '1min': (300, 1001, 50), '5min': (50, 1001, 10), '15min': (10, 1001, 5), '30min': (10, 1001, 5),
-        '1h': (5, 501, 2), '4h': (5, 501, 1), '12h': (5, 501, 1),
-        '1d': (3, 301, 1), '3d': (3, 301, 1), '1w': (3, 101, 1)
-        }
+    timescales = backtest_ranges
 
     for pair in pairs:
         print(f'Testing {pair}')
@@ -507,16 +539,11 @@ def walk_forward(strat, printout=False):
     print(f'Starting tests on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
     start = time.perf_counter()
 
-    timescales = {
-        '1d': (3, 301, 1, 1, 90, 1), '3d': (3, 301, 1, 0.333333, 50, 1), '1w': (3, 101, 1, 0.142857, 50, 1),
-        '1h': (5, 501, 2, 24, 2000, 50), '4h': (5, 501, 1, 6, 500, 12), '12h': (5, 501, 1, 2, 180, 4),
-        '15min': (10, 1001, 5, 96, 6000, 150), '30min': (10, 1001, 5, 48, 3000, 75),
-        '1min': (300, 1001, 50, 1440, 80000, 2000), '5min': (50, 1001, 10, 288, 18000, 450)
-    }
+    timescales = walk_fwd_ranges
 
     pairs_list = create_pairs_list('USDT')
     # pairs_list = ['ETHBTC', 'ETHUSDT', 'BNBUSDT', 'BTCUSDT', 'BNBBTC']
-    pairs_list = ['BNBBTC']
+    pairs_list = ['VETBTC', 'TOMOBTC', 'ICXBTC', 'ADABTC', 'NEOBTC', 'LTCBTC', 'LINKBTC']
     for pair in pairs_list:
         if printout:
             print(f'Testing {pair} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
@@ -582,7 +609,9 @@ def walk_forward(strat, printout=False):
 
 def load_results(strat, pair, timescale, train_str, params):
     folder = Path(f'V:/results/{strat}/walk-forward/{pair}/{timescale}/{train_str}/{params}')
+    # print(folder)
     files_list = list(folder.glob('*.csv'))
+    # print(f'files_list: {files_list}')
     set_num_list = [int(file.stem) for file in files_list]
     names_list = [file.name for file in files_list]
     df_list = [pd.read_csv(folder / name, index_col=0) for name in names_list]
@@ -592,21 +621,103 @@ def load_results(strat, pair, timescale, train_str, params):
     # print(df_dict.keys())
     return df_dict
 
-def get_best(metric, df_dict):
+### returns dict with keys: training set num, values: hma length
+def get_best(metric, df_dict, long, short):
     results = {}
+    last_valid = -1 # any train period that doesn't produce a valid result can use the most recent one
+    count_result = 0 # how many training periods produced a valid result
+    count_none = 0 # how many didn't. these counts are affected by the 'num trades' filter a few lines down
+    list_for_plot = []
     for i in range(1, len(df_dict.keys())): # range starts at 1 because training sets are all numbered from 1
         df = df_dict.get(i)
-        df = df.loc[df['num trades'] > 10]
+        df = df.loc[df['num trades'] > 30]
         best = df.sort_values(metric, ascending=False, ignore_index=True).head(1)
-        # TODO if this method doesnt produce good results, it may be because i am just choosing the highest score from
-        #  each metric in each period, when i could instead choose the middle of the widest and highest local maximum
+        from_date, to_date = get_dates(i, long, short, 'test')
         if len(best.index) > 0:
-            print(f'\n\n{i} best {metric}:\nlength: {best.iloc[0, 0]}')
-            results[i] = best.iloc[0, 0]
+            count_result += 1
+            # print(f'{i} best {metric}: length: {best.iloc[0, 0]}')
+            results[i] = {'length': best.iloc[0, 0], 'from': from_date, 'to': to_date}
+            last_valid = best.iloc[0, 0]
+            list_for_plot.append(best.iloc[0, 0])
         else:
-            print(f'\n\n{i} empty df')
-            results[i] = None
-    return results
+            count_none += 1
+            # print(f'{i} empty df')
+            results[i] = {'length': last_valid, 'from': from_date, 'to': to_date}
+    print(f'count_result: {count_result}, count_none: {count_none}')
+
+    plt.plot(list_for_plot)
+    plt.xlabel('period')
+    plt.ylabel('length')
+    plt.show()
+
+    return results # returns dict with keys: training set num, values: {hma length, date from, date to}
+
+### returns dict with keys: training set num, values: hma length
+def get_best_wide(metric, df_dict, long, short):
+    results = {}
+    last_valid = -1 # any train period that doesn't produce a single valid result can use the most recent one
+    count_result = 0 # how many training periods produced a valid result
+    count_none = 0 # how many didn't. these counts are affected by the 'num trades' filter a few lines down
+    list_for_plot = [] # to plot evolution of length over the whole lifetime of the pair
+    wide_tot_list = []
+    for j in range(1, len(df_dict.keys())): # range starts at 1 because training sets are all numbered from 1
+        df = df_dict.get(j)
+        df = df.loc[df['num trades'] > 30]
+        print(df.columns)
+        for i in range(len(df.index)):
+            res_cols = {'sqn': 3, 'win rate': 4, 'pnl per day': 8}
+            col = res_cols.get(metric) # turns metric string into a number so i can use iloc
+            wide_total = sum(df.iloc[i-2:i+3, col])
+            wide_tot_list.append((df.iloc[i, 0], wide_total))
+        # print(f'wide_tot_list before sort: {wide_tot_list}')
+        wide_tot_list = sorted(wide_tot_list, key=lambda x:x[1])
+        # print(f'wide_tot_list after: {wide_tot_list}')
+        best = wide_tot_list[0]
+        from_date, to_date = get_dates(i, long, short, 'test')
+        if len(best) > 0:
+            count_result += 1
+            # print(f'{i} best {metric}: length: {best.iloc[0, 0]}')
+            results[i] = {'length': best[0], 'from': from_date, 'to': to_date}
+            last_valid = best[0]
+            list_for_plot.append(best[0])
+        else:
+            count_none += 1
+            # print(f'{i} empty df')
+            results[i] = {'length': last_valid, 'from': from_date, 'to': to_date}
+    print(f'count_result: {count_result}, count_none: {count_none}')
+
+    plt.plot(list_for_plot)
+    plt.xlabel('period')
+    plt.ylabel('length')
+    plt.show()
+
+    return results # returns dict with keys: training set num, values: {hma length, date from, date to}
+
+# TODO if get_best outputs a length of -1, that means dont start trading yet, because no valid signal has been produced yet
+
+def aggregate_results(best, price):
+    # print(best.keys())
+    length_set = set([best[i].get('length') for i in best])
+    print(f'len(length_set): {len(length_set)}')
+    series_dict = {}
+    for k in length_set:
+        series_dict[k] =  hma_calc(price, k)
+        print(f'hma {k} calculated')
+    print(f'len(series_dict): {len(series_dict)}')
+    stitch = []
+
+    for setnum in best:
+        l = best[setnum].get('length')
+        f = best[setnum].get('from')
+        t = best[setnum].get('to')
+        s = series_dict.get(l)[f:t]
+        stitch.append(s)
+
+    print(f'is stitch same length as input series? {len(stitch) == len(price)}')
+    print(f'len(stitch): {len(stitch)}, len(price): {len(price)}')
+    return stitch
+
+    # TODO this function replaces hma_calc as it outputs a series of hma values which can be used to generate signals
 
 def plot_eq(eq_curve, pair, metric):
     plt.plot(eq_curve)
@@ -624,7 +735,7 @@ def forward_run(strat, pair, timescale, train_length, test_length, params, metri
     price = price[train_length:]  # forward test starts from the beginning of the first test period
     vol = vol[train_length:]
     days = len(price) / 1440
-    train_string = f'{train_length // 1000}k-{test_length // 1000}k'
+    train_string = f'{train_length}-{test_length}'
     if printout:
         print(train_string)
 
@@ -634,22 +745,19 @@ def forward_run(strat, pair, timescale, train_length, test_length, params, metri
         print(f'df_dict: {df_dict}')
 
     # call get_best to get settings for each period for a particular metric
-    best = get_best(metric, df_dict)
-    # print(best.values())
+    best = get_best_wide(metric, df_dict, train_length, test_length) # returns {set num: {length, from_date, to_date}}
+    # print(f'best.values(): {best.values()}')
 
-    # call backtest_forward to generate the signals
-    backtest = backtest_forward(best, price, train_length, test_length)
+    backtest = single_backtest(price, None, 'fwd', best, True)
     if printout:
         print(f'backtest: {backtest}')
 
     # call calculate to generate final statistics
-    fwd_results = calculate_one(backtest, days)
+    fwd_results = calc_stats_one(backtest, days)
 
     # call draw_ohlc to plot trades on ohlc chart
-    # call draw_bricks to draw renko chart
     if single_run:
         draw_ohlc(backtest, price, pair)
-        # draw_bars(bricks, 500)
         # chart the equity curves of the different optimisation metrics
         # plot_eq(backtest.get('equity curve'), pair, metric)
         #TODO get draw_ohlc and plot_eq as subplots of the same chart
@@ -697,11 +805,10 @@ if __name__ == '__main__':
     # low, hi, step = (300, 1001, 50)'
     # params = f'lengths{low}-{hi}-{step}'
 
-    # single_test('CRVUSDT', 10, '1w', True)
+    single_test('ETHUSDT', 35, '1d', True)
 
     # test_all('hma_strat', True)
 
-    walk_forward('hma_strat', True)
+    # walk_forward('hma_strat', True)
 
-    # results = load_results('hma_strat', 'ETHBTC', '1d', '90-1', 'lengths3-301-1')
-    # get_best('sqn', results)
+    # forward_run('hma_strat', 'ETHBTC', '1h', 2000, 50, 'lengths5-501-2', 'sqn')

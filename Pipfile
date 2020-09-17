@@ -9,6 +9,7 @@ verify_ssl = true
 pandas = "*"
 matplotlib = "*"
 finta = "*"
+imageio = "*"
 
 [requires]
 python_version = "3.8"
