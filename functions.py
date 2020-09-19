@@ -12,18 +12,18 @@ import multiprocessing
 
 
 backtest_ranges = {
-        '1d': (3, 301, 1), '3d': (3, 301, 1), '1w': (3, 101, 1),
+        # '1d': (3, 301, 1), '3d': (3, 301, 1), '1w': (3, 101, 1),
         '1h': (5, 501, 2), '4h': (5, 501, 1), '12h': (5, 501, 1),
         '15min': (10, 1001, 5), '30min': (10, 1001, 5),
-        '1min': (300, 1001, 50), '5min': (50, 1001, 10)
+        # '1min': (300, 1001, 50), '5min': (50, 1001, 10)
         }
 
 
 walk_fwd_ranges = {
-        '1d': (3, 301, 1, 1, 90, 1), '3d': (3, 301, 1, 0.333333, 50, 1), '1w': (3, 101, 1, 0.142857, 50, 1),
-        '1h': (5, 501, 2, 24, 2000, 50), '4h': (5, 501, 1, 6, 500, 12), '12h': (5, 501, 1, 2, 180, 4),
+        # '1d': (3, 301, 1, 1, 90, 1), '3d': (3, 301, 1, 0.333333, 50, 1), '1w': (3, 101, 1, 0.142857, 50, 1),
+        '1h': (5, 501, 2, 24, 2000, 50), '4h': (5, 501, 1, 6, 500, 12), '12h': (5, 251, 1, 2, 180, 4),
         '15min': (10, 1001, 5, 96, 6000, 150), '30min': (10, 1001, 5, 48, 3000, 75),
-        '1min': (300, 1001, 50, 1440, 80000, 2000), '5min': (50, 1001, 10, 288, 18000, 450)
+        # '1min': (300, 1001, 50, 1440, 80000, 2000), '5min': (50, 1001, 10, 288, 18000, 450)
         }
 
 
@@ -499,7 +499,7 @@ def test_all(strat, printout=False):
     start = time.perf_counter()
 
     pairs = create_pairs_list('USDT')
-    pairs = ['TOMOUSDT']
+    pairs = ['ETHBTC']
     timescales = backtest_ranges
 
     for pair in pairs:
@@ -542,8 +542,8 @@ def walk_forward(strat, printout=False):
     timescales = walk_fwd_ranges
 
     pairs_list = create_pairs_list('USDT')
-    # pairs_list = ['ETHBTC', 'ETHUSDT', 'BNBUSDT', 'BTCUSDT', 'BNBBTC']
-    pairs_list = ['VETBTC', 'TOMOBTC', 'ICXBTC', 'ADABTC', 'NEOBTC', 'LTCBTC', 'LINKBTC']
+    pairs_list = ['ETHBTC', 'ETHUSDT', 'BNBUSDT', 'BTCUSDT', 'BNBBTC']
+    # pairs_list = ['VETBTC', 'TOMOBTC', 'ICXBTC', 'ADABTC', 'NEOBTC', 'LTCBTC', 'LINKBTC']
     for pair in pairs_list:
         if printout:
             print(f'Testing {pair} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
@@ -805,10 +805,10 @@ if __name__ == '__main__':
     # low, hi, step = (300, 1001, 50)'
     # params = f'lengths{low}-{hi}-{step}'
 
-    single_test('ETHUSDT', 35, '1d', True)
+    # single_test('ETHUSDT', 35, '1d', True)
 
     # test_all('hma_strat', True)
 
-    # walk_forward('hma_strat', True)
+    walk_forward('hma_strat', True)
 
     # forward_run('hma_strat', 'ETHBTC', '1h', 2000, 50, 'lengths5-501-2', 'sqn')
