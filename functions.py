@@ -45,10 +45,10 @@ def create_pairs_list(quote, source='ohlc'):
 def get_dates(counter, long, short, set):
     if set == 'train':
         from_date = counter * short
-        to_date = from_date + long + 1
+        to_date = from_date + long
     elif set == 'test':
         from_date = counter * short + long
-        to_date = from_date + short + 1
+        to_date = from_date + short
     return from_date, to_date
 
 ### load ohlc data, returns two lists; price (ohlcv, close or avg) and volume
@@ -113,11 +113,11 @@ def resample_ohlc(price, vol, scale, mode='ohlcv'):
 
 ### Hull moving average
 def hma_calc(price, length):
-    return TA.HMA(price, length)
+    return list(TA.HMA(price, length))
 
 ### currently returns a list of tuples containing signals: (index, b/s, price)
 def hma_strat(price, length):
-    hma = list(hma_calc(price, length))
+    hma = hma_calc(price, length)
 
     signals = []
     for i in range(len(price)):
@@ -132,7 +132,13 @@ def hma_strat(price, length):
 
 ### currently returns a list of tuples containing signals: (index, b/s, price)
 def hma_strat_forward(best, price):
+    start = time.perf_counter()
     hma = aggregate_results(best, price)
+    # hma = aggregate_results_multi(best, price)
+    end = time.perf_counter()
+    total = end - start
+    print(f'agg results calculated in {total // 60}m {round(total % 60)}s')
+
 
     signals = []
     print(len(price))
@@ -148,7 +154,7 @@ def hma_strat_forward(best, price):
 
 ### backtest a single set of params
 def single_backtest(price, length, mode='norm', best=None, printout=False):
-    printout = False
+    printout = True
     vol = list(price.loc[:, 'volume'])
     # print(price.columns)
 
@@ -313,7 +319,7 @@ def optimise_bt_multi(price, length_range, printout=False):
     if printout:
         print(f'Optimising length range: {length_range}')
     with multiprocessing.Pool() as pool:
-        backtest = pool.starmap(single_backtest, arguments)
+        backtest = pool.starmap(single_backtest, arguments) # returns list of dictionaries
     for i in backtest:
         lengths_list.append(i.get('length'))
         trades_array.append(i.get('trades'))
@@ -662,28 +668,27 @@ def get_best_wide(metric, df_dict, long, short):
     wide_tot_list = []
     for j in range(1, len(df_dict.keys())): # range starts at 1 because training sets are all numbered from 1
         df = df_dict.get(j)
-        df = df.loc[df['num trades'] > 30]
-        print(df.columns)
+        df = df.loc[df['num trades'] > 10]
         for i in range(len(df.index)):
             res_cols = {'sqn': 3, 'win rate': 4, 'pnl per day': 8}
             col = res_cols.get(metric) # turns metric string into a number so i can use iloc
-            wide_total = sum(df.iloc[i-2:i+3, col])
+            wide_total = sum(df.iloc[i-3:i+4, col])
             wide_tot_list.append((df.iloc[i, 0], wide_total))
         # print(f'wide_tot_list before sort: {wide_tot_list}')
         wide_tot_list = sorted(wide_tot_list, key=lambda x:x[1])
         # print(f'wide_tot_list after: {wide_tot_list}')
         best = wide_tot_list[0]
-        from_date, to_date = get_dates(i, long, short, 'test')
+        from_date, to_date = get_dates(j, long, short, 'test')
         if len(best) > 0:
             count_result += 1
             # print(f'{i} best {metric}: length: {best.iloc[0, 0]}')
-            results[i] = {'length': best[0], 'from': from_date, 'to': to_date}
+            results[j] = {'length': best[0], 'from': from_date, 'to': to_date}
             last_valid = best[0]
             list_for_plot.append(best[0])
         else:
             count_none += 1
             # print(f'{i} empty df')
-            results[i] = {'length': last_valid, 'from': from_date, 'to': to_date}
+            results[j] = {'length': last_valid, 'from': from_date, 'to': to_date}
     print(f'count_result: {count_result}, count_none: {count_none}')
 
     plt.plot(list_for_plot)
@@ -696,28 +701,61 @@ def get_best_wide(metric, df_dict, long, short):
 # TODO if get_best outputs a length of -1, that means dont start trading yet, because no valid signal has been produced yet
 
 def aggregate_results(best, price):
-    # print(best.keys())
     length_set = set([best[i].get('length') for i in best])
     print(f'len(length_set): {len(length_set)}')
-    series_dict = {}
+    hma_dict = {}
     for k in length_set:
-        series_dict[k] =  hma_calc(price, k)
-        print(f'hma {k} calculated')
-    print(f'len(series_dict): {len(series_dict)}')
+        start = time.perf_counter()
+        hma_dict[k] =  hma_calc(price, k)
+        end = time.perf_counter()
+        total = end - start
+        print(f'hma {k} calculated in {total // 60}m {round(total % 60)}s')
+    print(f'len(series_dict): {len(hma_dict)}')
     stitch = []
 
     for setnum in best:
         l = best[setnum].get('length')
         f = best[setnum].get('from')
         t = best[setnum].get('to')
-        s = series_dict.get(l)[f:t]
-        stitch.append(s)
+        s = hma_dict.get(l)[f:t]
+        print(f'l: {l}, f: {f}, t: {t}, s: {s}')
+        stitch.extend(s)
 
     print(f'is stitch same length as input series? {len(stitch) == len(price)}')
     print(f'len(stitch): {len(stitch)}, len(price): {len(price)}')
     return stitch
 
     # TODO this function replaces hma_calc as it outputs a series of hma values which can be used to generate signals
+
+def aggregate_results_multi(best, price):
+    # print(f'best.keys(): {best.keys()}')
+    length_set = set([best[i].get('length') for i in best])
+    length_list = list(length_set)
+    print(f'HMA series to calculate: {len(length_set)}')
+
+    price_list = [price] * len(length_set)
+    arguments = zip(price_list, length_list)
+    with multiprocessing.Pool() as pool:
+        hma_list = pool.starmap(hma_calc, arguments)
+
+    hma_dict = {}
+    for k in length_list:
+        hma_dict[k] = hma_list[k]
+    print(f'len(series_dict): {len(hma_dict)}')
+    stitch = []
+
+    for setnum in best:
+        l = best[setnum].get('length')
+        f = best[setnum].get('from')
+        t = best[setnum].get('to')
+        s = hma_dict.get(l)[f:t]
+        stitch.extend(s)
+
+    print(f'is stitch same length as input series? {len(stitch) == len(price)}')
+    print(f'len(stitch): {len(stitch)}, len(price): {len(price)}')
+    return stitch
+
+# TODO this function replaces hma_calc as it outputs a series of hma values which can be used to generate signals
 
 def plot_eq(eq_curve, pair, metric):
     plt.plot(eq_curve)
@@ -732,6 +770,7 @@ def forward_run(strat, pair, timescale, train_length, test_length, params, metri
 
     # call load_data to get price and vol data
     price, vol = load_data(pair)
+    price, vol = resample_ohlc(price, vol, timescale)
     price = price[train_length:]  # forward test starts from the beginning of the first test period
     vol = vol[train_length:]
     days = len(price) / 1440
@@ -748,11 +787,13 @@ def forward_run(strat, pair, timescale, train_length, test_length, params, metri
     best = get_best_wide(metric, df_dict, train_length, test_length) # returns {set num: {length, from_date, to_date}}
     # print(f'best.values(): {best.values()}')
 
+    print('Running Backtest')
     backtest = single_backtest(price, None, 'fwd', best, True)
     if printout:
         print(f'backtest: {backtest}')
 
     # call calculate to generate final statistics
+    print('Calculating Stats')
     fwd_results = calc_stats_one(backtest, days)
 
     # call draw_ohlc to plot trades on ohlc chart
@@ -762,6 +803,7 @@ def forward_run(strat, pair, timescale, train_length, test_length, params, metri
         # plot_eq(backtest.get('equity curve'), pair, metric)
         #TODO get draw_ohlc and plot_eq as subplots of the same chart
 
+    print('Forward run completed')
     return fwd_results
 
 def forward_run_all(train_length, test_length):
@@ -811,4 +853,4 @@ if __name__ == '__main__':
 
     walk_forward('hma_strat', True)
 
-    # forward_run('hma_strat', 'ETHBTC', '1h', 2000, 50, 'lengths5-501-2', 'sqn')
+    # forward_run('hma_strat', 'TOMOBTC', '12h', 180, 4, 'lengths5-251-1', 'sqn')
