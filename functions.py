@@ -582,7 +582,14 @@ def walk_forward(strat, printout=False):
             ### main loop
             training = True
             while training:
-                price, vol = load_data(pair)
+                result = None
+                while result is None:
+                    try:
+                        price, vol = load_data(pair)
+                        result = vol
+                    except pandas.error.ParserError:
+                        print('*-' * 30, ' ParserError ', '-*' * 30)
+                        pass
                 print(f'Testing {pair} {scale} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
                 if scale != '1min':
                     price, vol = resample_ohlc(price, vol, scale)
@@ -742,6 +749,12 @@ def aggregate_results(best, price):
     elif len(stitch) < len(price):
         print(f'\nprice is longer than stitch by {len(price) - len(stitch)}\n')
 
+    nan_count = 0
+    for q in stitch:
+        if math.isnan(q):
+            nan_count += 1
+    print(f'nan_count: {nan_count}')
+
     return stitch
 
     # TODO this function replaces hma_calc as it outputs a series of hma values which can be used to generate signals
@@ -874,4 +887,4 @@ if __name__ == '__main__':
 
     walk_forward('hma_strat', True)
 
-    # forward_run('hma_strat', 'VETBTC', '1h', 2000, 50, 'lengths5-501-2', 'sqn')
+    # forward_run('hma_strat', 'TOMOBTC', '1h', 2000, 50, 'lengths5-501-2', 'sqn')
