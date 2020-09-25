@@ -9,6 +9,8 @@ import time
 from finta import TA
 from finta.utils import resample
 import multiprocessing
+import talib
+
 
 
 backtest_ranges = {
@@ -84,6 +86,25 @@ def load_data(pair, mode='ohlcv'):
     if mode == 'avg':
         return avg_price, vol
 
+def my_hma(ohlc, period, mode='close'):
+    if mode == 'close':
+        price = ohlc.loc[:, 'close']
+    else:
+        pass
+    fast_wma = talib.WMA(price, int(period/2))
+    slow_wma = talib.WMA(price, period)
+    diff = 2*fast_wma - slow_wma
+    hma = talib.WMA(diff, int(math.sqrt(period)))
+    # print(hma)
+    return hma
+
+def count_nans(series, name=None):
+    nan_count = 0
+    for i in range(len(series)):
+        if math.isnan(series[i]):
+            nan_count += 1
+    print(f"{name}'s count is {nan_count}")
+
 ### takes in 1min price data and returns 5min, 15min, 30min, 1h, 4h, 12h, 1d, 3d, 1w price(ohlcv, close, mean or median) data
 def resample_ohlc(price, vol, scale, mode='ohlcv'):
     timescales = {'5min': 5, '15min': 15, '30min': 30, '1h': 60, '4h': 240, '12h': 720, '1d': 1440, '3d': 4320, '1w': 10080}
@@ -125,7 +146,13 @@ def resample_ohlc(price, vol, scale, mode='ohlcv'):
 
 ### Hull moving average
 def hma_calc(price, length):
-    return list(TA.HMA(price, length))
+    hma_list = list(TA.HMA(price, length))
+    # hma_list = list(my_hma(price, length))
+    # print(f'length: {length}')
+    # count_nans(hma_list)
+    # plt.plot(hma_list)
+    # plt.show()
+    return hma_list
 
 ### calls hma_calc to produce a list of tuples containing signals: (index, b/s, price)
 def hma_strat(price, length):
@@ -580,6 +607,8 @@ def walk_forward(strat, printout=False):
                     i += 1
             # print(f'i starting at {i}')
             ### main loop
+            if not printout: # theres an alternative in the while loop if printout is true
+                print(f'Testing {pair} {scale} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
             training = True
             while training:
                 result = None
@@ -587,10 +616,11 @@ def walk_forward(strat, printout=False):
                     try:
                         price, vol = load_data(pair)
                         result = vol
-                    except pandas.error.ParserError:
+                    except pd.error.ParserError:
                         print('*-' * 30, ' ParserError ', '-*' * 30)
                         pass
-                print(f'Testing {pair} {scale} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
+                if printout:
+                    print(f'Testing {pair} {scale} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
                 if scale != '1min':
                     price, vol = resample_ohlc(price, vol, scale)
                 if len(vol) > 0:
@@ -609,7 +639,11 @@ def walk_forward(strat, printout=False):
                         i += 1
                     else:
                         num_sets = int((len(price) - train_length) / test_length)
-                        print(f'training {i} of {num_sets}\n')
+                        if printout:
+                            print(f'training {i} of {num_sets}')
+                        else:
+                            print(f'training {i} of {num_sets} at time {time.ctime()[11:-8]}')
+
                         price = price.iloc[from_index:to_index, :]
                         days = (len(price.index) / div)
                         backtest_range = timescales.get(scale)[:3]
@@ -721,14 +755,28 @@ def get_best_wide(metric, df_dict, long, short):
 ### takes the results from get_best and stitches together a hma series from different hma lengths
 def aggregate_results(best, price):
     length_set = set([best[i].get('length') for i in best])
-    print(f'len(length_set): {len(length_set)}')
+    print(f'length_set: {length_set}')
     print(f'len(price): {len(price)}')
     hma_dict = {}
     for k in length_set:
         start = time.perf_counter()
-        hma_dict[k] =  hma_calc(price, k)
+        hma_k = hma_calc(price, k)
+        if k == 15:
+            print(hma_k)
         end = time.perf_counter()
         total = end - start
+        hma_dict[k] = hma_k
+
+        nan_count = 0
+        nans = []
+        for q in range(len(hma_k)):
+            if math.isnan(hma_k[q]):
+                nan_count += 1
+                if q > nan_count:
+                    nans.append(q)
+                    # print(f'length {k}, nans not at beginning: \n{nans}')
+        # print(f'nan_count: {nan_count}')
+
         print(f'hma {k} calculated in {int(total / 60)}m {round(total % 60)}s')
         print(f'len(hma-{k}: {len(hma_dict.get(k))}')
     print(f'len(series_dict): {len(hma_dict)}')
@@ -750,8 +798,8 @@ def aggregate_results(best, price):
         print(f'\nprice is longer than stitch by {len(price) - len(stitch)}\n')
 
     nan_count = 0
-    for q in stitch:
-        if math.isnan(q):
+    for q in range(len(stitch)):
+        if math.isnan(stitch[q]):
             nan_count += 1
     print(f'nan_count: {nan_count}')
 
@@ -885,6 +933,6 @@ if __name__ == '__main__':
 
     # test_all('hma_strat', True)
 
-    walk_forward('hma_strat', True)
+    walk_forward('hma_strat')
 
     # forward_run('hma_strat', 'TOMOBTC', '1h', 2000, 50, 'lengths5-501-2', 'sqn')
