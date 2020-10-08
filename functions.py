@@ -10,6 +10,7 @@ from finta import TA
 from finta.utils import resample
 import multiprocessing
 import talib
+import numpy
 
 
 
@@ -104,6 +105,12 @@ def count_nans(series, name=None):
         if math.isnan(series[i]):
             nan_count += 1
     print(f"{name}'s count is {nan_count}")
+
+def my_resample(price, vol, scale):
+    new_price = price.resample(scale)#.aggregate({'close': last(), 'volume': sum()})
+    # new_vol = list(price['volume'].resample(scale).sum())
+    new_vol = list(new_price['volume'])
+    return new_price, new_vol
 
 ### takes in 1min price data and returns 5min, 15min, 30min, 1h, 4h, 12h, 1d, 3d, 1w price(ohlcv, close, mean or median) data
 def resample_ohlc(price, vol, scale, mode='ohlcv'):
@@ -609,28 +616,29 @@ def walk_forward(strat, printout=False):
             ### main loop
             if not printout: # theres an alternative in the while loop if printout is true
                 print(f'Testing {pair} {scale} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
+            # result = None
+            # while result is None:
+            #     try:
+            #         main_price, main_vol = load_data(pair)
+            #         result = main_vol
+            #     except pd.error.ParserError:
+            #         print('*-' * 30, ' ParserError ', '-*' * 30)
+            #         pass
+            main_price, main_vol = load_data(pair) # the try except block above just produces an endless loop of errors
+            if scale != '1min':
+                main_price, main_vol = resample_ohlc(main_price, main_vol, scale)
             training = True
             while training:
-                result = None
-                while result is None:
-                    try:
-                        price, vol = load_data(pair)
-                        result = vol
-                    except pd.error.ParserError:
-                        print('*-' * 30, ' ParserError ', '-*' * 30)
-                        pass
                 if printout:
                     print(f'Testing {pair} {scale} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
-                if scale != '1min':
-                    price, vol = resample_ohlc(price, vol, scale)
-                if len(vol) > 0:
+                if len(main_vol) > 0:
                     from_index, to_index = get_dates(i, train_length, test_length, 'train')
-                    if (train_length + test_length) > len(price):
+                    if (train_length + test_length) > len(main_price):
                         print(f'Not enough data for {pair} test')
                         training = False
                         print('*' * 40)
-                    elif (to_index + test_length) > len(price):
-                        print(f'set number: {i}, from_index: {from_index}, to_index: {to_index}, len(price): {len(price)}')
+                    elif (to_index + test_length) > len(main_price):
+                        print(f'set number: {i}, from_index: {from_index}, to_index: {to_index}, len(price): {len(main_price)}')
                         print(f'Not enough data for another training period, {pair} finished')
                         training = False
                         print('*' * 40)
@@ -638,13 +646,13 @@ def walk_forward(strat, printout=False):
                         print(f'Test {i} already completed, moving to next test')
                         i += 1
                     else:
-                        num_sets = int((len(price) - train_length) / test_length)
+                        num_sets = int((len(main_price) - train_length) / test_length)
                         if printout:
                             print(f'training {i} of {num_sets}')
                         else:
-                            print(f'training {i} of {num_sets} at time {time.ctime()[11:-8]}')
+                            print(f'training {i} of {num_sets} at time {time.ctime()[11:-8]}, len(price): {len(main_price)}')
 
-                        price = price.iloc[from_index:to_index, :]
+                        price = main_price.iloc[from_index:to_index, :]
                         days = (len(price.index) / div)
                         backtest_range = timescales.get(scale)[:3]
                         backtest = optimise_bt_multi(price, backtest_range)
@@ -754,6 +762,20 @@ def get_best_wide(metric, df_dict, long, short):
 
 ### takes the results from get_best and stitches together a hma series from different hma lengths
 def aggregate_results(best, price):
+
+    prev = 0
+    from_list = []
+    for setnum in best:
+        l = best[setnum].get('length')
+        f = best[setnum].get('from')
+        t = best[setnum].get('to')
+        # print(f'setnum: {setnum}, length: {l}, from: {f}, to: {t}')
+        if l != prev:
+            from_list.append((l, f))
+        prev = l
+    for i in from_list:
+        print(f'length {i[0]} starts at {i[1]}')
+
     length_set = set([best[i].get('length') for i in best])
     print(f'length_set: {length_set}')
     print(f'len(price): {len(price)}')
@@ -787,7 +809,7 @@ def aggregate_results(best, price):
         f = best[setnum].get('from')
         t = best[setnum].get('to')
         s = hma_dict.get(l)[f:t]
-        print(f'l: {l}, f: {f}, t: {t}, s: {s}')
+        # print(f'l: {l}, f: {f}, t: {t}, s: {s}')
         stitch.extend(s)
 
     if len(stitch) == len(price):
