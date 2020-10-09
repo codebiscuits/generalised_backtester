@@ -45,25 +45,20 @@ def find_gaps(pair, ohlc):
     return ohlc, count, diff
 
 
-def check_valid(pair, ohlc):
+def check_valid(ohlc):
     new_dt = pd.date_range(start=ohlc.index[0], end=ohlc.index[-1], freq='1min')
     invalid_dt = 0
     for i in range(len(new_dt) - 1):
         if new_dt[i] != data.index[i]:
             invalid_dt += 1
             break
-    #     print(invalid_dt)
     return not invalid_dt
 
 
-def create_pairs_list(quote, source='ohlc'):
-    if source == 'ohlc':
-        stored_files_path = Path(f'V:/ohlc_data/')
-        files_list = list(stored_files_path.glob(f'*{quote}-1m-data.csv'))
-        pairs = [str(pair)[13:-12] for pair in files_list]
-    else:
-        folders_list = list(source.iterdir())
-        pairs = [str(pair.stem) for pair in folders_list]
+def create_pairs_list(quote):
+    stored_files_path = Path(f'V:/ohlc_data/')
+    files_list = list(stored_files_path.glob(f'*{quote}-1m-data.csv'))
+    pairs = [str(pair)[13:-12] for pair in files_list]
 
     return pairs
 
@@ -102,7 +97,7 @@ if __name__ == '__main__':
         print(f'{dups} duplicates fixed at {time.ctime()[11:-8]}')
         data, gaps, diff = find_gaps(pair, data)
         print(f'{gaps} of {diff} gaps filled at {time.ctime()[11:-8]}')
-        all_good = check_valid(pair, data)
+        all_good = check_valid(data)
         if all_good:
             save_data(pair, data)
         else:
