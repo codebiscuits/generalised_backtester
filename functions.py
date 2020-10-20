@@ -32,11 +32,11 @@ walk_fwd_ranges = {
         # '1w': (3, 101, 1, 0.142857, 50, 1),
         # '3d': (3, 301, 1, 0.333333, 50, 1),
         # '1d': (3, 301, 1, 1, 90, 1),
-        '12h': (5, 251, 1, 2, 180, 4),
-        '4h': (5, 501, 1, 6, 500, 12),
-        '1h': (5, 501, 2, 24, 2000, 50),
-        '30min': (10, 1001, 5, 48, 3000, 75),
-        '15min': (10, 1001, 5, 96, 6000, 150),
+        # '12h': (5, 251, 1, 2, 180, 4),
+        '4h': (5, 201, 1, 6, 1000, 12),
+        # '1h': (5, 501, 2, 24, 2000, 50),
+        # '30min': (10, 1001, 5, 48, 3000, 75),
+        # '15min': (10, 1001, 5, 96, 6000, 150),
         # '5min': (50, 1001, 10, 288, 18000, 450),
         # '1min': (300, 1001, 50, 1440, 80000, 2000)
         }
@@ -595,7 +595,7 @@ def walk_forward(strat, printout=False):
 
     pairs_list = create_pairs_list('USDT')
     pairs_list = ['ETHBTC', 'ETHUSDT', 'BNBUSDT', 'BTCUSDT', 'BNBBTC']
-    pairs_list = ['TOMOBTC', 'VETBTC', 'ICXBTC', 'ADABTC', 'NEOBTC', 'LTCBTC', 'LINKBTC']
+    pairs_list = ['TOMOBTC'] # , 'VETBTC', 'ICXBTC', 'ADABTC', 'NEOBTC', 'LTCBTC', 'LINKBTC']
     for pair in pairs_list:
         for scale in timescales.keys():
             low, hi, step, div, train_length, test_length = timescales.get(scale)
@@ -957,4 +957,4 @@ if __name__ == '__main__':
 
     walk_forward('hma_strat')
 
-    # forward_run('hma_strat', 'TOMOBTC', '1h', 2000, 50, 'lengths5-501-2', 'sqn')
+    # forward_run('hma_strat', 'TOMOBTC', '4h', 1000, 12, 'lengths5-201-1', 'sqn')
