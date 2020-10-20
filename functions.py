@@ -187,8 +187,9 @@ def hma_strat_forward(best, price):
 
 
     signals = []
-    print(len(price))
-    for i in range(len(price)):
+    print(f'len(price): {len(price)}, len(hma): {len(hma)}')
+    for i in range(len(hma)):
+        print(f'i: {i}')
         if hma[i] > hma[i-2] and hma[i-1] > hma[i-3]:
             signal = (i, 'b', price)
             signals.append(signal)
@@ -955,6 +956,6 @@ if __name__ == '__main__':
 
     # test_all('hma_strat', True)
 
-    walk_forward('hma_strat')
+    # walk_forward('hma_strat')
 
-    # forward_run('hma_strat', 'TOMOBTC', '4h', 1000, 12, 'lengths5-201-1', 'sqn')
+    forward_run('hma_strat', 'TOMOBTC', '4h', 1000, 12, 'lengths5-201-1', 'sqn')

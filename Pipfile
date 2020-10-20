@@ -12,6 +12,7 @@ finta = "*"
 imageio = "*"
 ta-lib = {path = "./TA_Lib-0.4.18-cp38-cp38-win_amd64.whl"}
 python-binance = "*"
+setuptools = "==50.3.0"
 
 [requires]
 python_version = "3.8"
