@@ -1,5 +1,5 @@
 import pandas as pd
-from functions import load_results, walk_fwd_ranges
+from functions import load_results, walk_fwd_ranges_old
 from pathlib import Path
 import statistics
 import matplotlib.pyplot as plt
@@ -20,7 +20,7 @@ def compare_timeframes_back(strat, pair, metric):
         try:
             time_scale = item.stem
             print(f'\n{time_scale}')
-            params = walk_fwd_ranges.get(time_scale)[:3]
+            params = walk_fwd_ranges_old.get(time_scale)[:3]
             full_path = item / f'lengths{params[0]}-{params[1]}-{params[2]}.csv'
             results = pd.read_csv(full_path, index_col=0)
             print(f'Data rows before filter: {len(results)}')
@@ -68,8 +68,8 @@ def compare_timeframes_fwd(strat, pair, metric):
 
     for item in times_list:
         time_scale = item.stem
-        params = walk_fwd_ranges.get(time_scale)[:3]
-        periods = walk_fwd_ranges.get(time_scale)[-2:]
+        params = walk_fwd_ranges_old.get(time_scale)[:3]
+        periods = walk_fwd_ranges_old.get(time_scale)[-2:]
         subfolder = Path(f'{periods[0]}-{periods[1]}/lengths{params[0]}-{params[1]}-{params[2]}')
         folder_path = item / subfolder
         print(folder_path)

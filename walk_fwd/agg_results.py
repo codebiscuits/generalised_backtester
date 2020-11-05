@@ -1,4 +1,4 @@
-from functions import get_best_wide, load_results, aggregate_results, load_data, resample_ohlc, hma_calc
+from functions import get_best_wide, load_results, aggregate_results, load_data, resample_ohlc, hma_calc_old
 import math
 
 pair = 'TOMOBTC'
@@ -23,9 +23,9 @@ print('- Running get_best')
 best = get_best_wide(metric, df_dict, train, test)
 
 print('Running hma_calc')
-hma_25 = hma_calc(price, 25)
+hma_25 = hma_calc_old(price, 25)
 print('Running hma_calc')
-hma_327 = hma_calc(price, 327)
+hma_327 = hma_calc_old(price, 327)
 
 nan_count = 0
 for q in range(len(hma_25)):
