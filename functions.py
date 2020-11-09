@@ -51,14 +51,14 @@ ranges0 = {
         }
 
 ranges = {
-        # '1w': ({'hma': (3, 101, 1), 'dvb': (3, 101, 1)}, 0.142857, 50, 1),
-        # '3d': ({'hma': (3, 301, 1), 'dvb': (3, 301, 1)}, 0.333333, 50, 1),
-        # '1d': ({'hma': (3, 301, 1), 'dvb': (3, 301, 1)}, 1, 90, 1),
-        '12h': ({'hma': (3, 20, 1), 'dvb': (5, 25, 1)}, 2, 360, 4),
-        '4h': ({'hma': (81, 201, 2), 'dvb': (21, 161, 2)}, 6, 1000, 12),
-        '1h': ({'hma': (11, 301, 3), 'dvb': (11, 301, 3)}, 24, 2000, 50),
-        '30min': ({'hma': (11, 301, 3), 'dvb': (11, 301, 3)}, 48, 3000, 75),
-        '15min': ({'hma': (11, 601, 6), 'dvb': (11, 601, 6)}, 96, 6000, 150),
+        # '1w': ({'hma': (2, 21, 1), 'dvb': (2, 21, 1)}, 0.142857, 50, 1),
+        # '3d': ({'hma': (3, 21, 1), 'dvb': (3, 21, 1)}, 0.333333, 50, 1),
+        # '1d': ({'hma': (3, 21, 1), 'dvb': (3, 21, 1)}, 1, 90, 1),
+        # '12h': ({'hma': (3, 21, 1), 'dvb': (5, 25, 10)}, 2, 360, 4),
+        '4h': ({'hma': (11, 401, 4), 'dvb': (11, 201, 20)}, 6, 1000, 12),
+        '1h': ({'hma': (11, 501, 5), 'dvb': (11, 301, 30)}, 24, 2000, 50),
+        '30min': ({'hma': (11, 501, 5), 'dvb': (11, 401, 40)}, 48, 3000, 75),
+        '15min': ({'hma': (11, 601, 6), 'dvb': (11, 601, 60)}, 96, 6000, 150),
         # '5min': ({'hma': (50, 1001, 10), 'dvb': (50, 1001, 10)}, 288, 18000, 450),
         # '1min': ({'hma': (300, 1001, 50), 'dvb': (300, 1001, 50)}, 1440, 80000, 2000)
         }
@@ -188,7 +188,6 @@ def hma_calc(price, length):
     price['hma'] = TA.HMA(price, length)
 
 def hma_dvb_strat(price, args):
-    print(args)
     hma_len, dvb_lb = args
     hma_calc(price, hma_len)
     dvb_calc(price, dvb_lb)
@@ -212,6 +211,8 @@ def hma_dvb_strat(price, args):
 
     price['bg_col'] = colours
     return signals
+
+# TODO write some risk management into the strategies, either trailing stop or fixed stop and tp
 
 ### calls hma_calc to produce a list of tuples containing signals: (index, b/s, price)
 def hma_strat(price, length):
@@ -414,7 +415,7 @@ def single_backtest(price, strategy, *args, mode='norm', best=None, printout=Fal
 
     start_signals = time.perf_counter()
     if mode == 'norm':
-        signals = strategy(price, *args)
+        signals = strategy(price, args)
         new_price = price
     else:
         #TODO fwd needs updating to *args functionality
@@ -563,6 +564,12 @@ def optimise_backtest(price, strategy, *args, printout=False):
     trades_array = []
     eq_curves = []
 
+    # TODO try to work out some kind of caching behaviour for the indicators being calculated over and over, it could
+    #  be a dictionary with three keys, one for each of the max three params, with the associated values being
+    #  sub-dictionaries for all the cached indicators. if the call to calculate the indicator is preceded by a line
+    #  that checks the cache and followed by a line which saves the data to the cache, then the first time each
+    #  indicator is calculated for each value of each param, it can be stored in the correct sub-dictionary with the
+    #  key as the param value and the value as the indicator series.
 
     if len(args) > 3:
         raise ValueError("Can't optimise more than 3 params")
@@ -571,7 +578,7 @@ def optimise_backtest(price, strategy, *args, printout=False):
             for param1 in range(*args[1]):
                 for param2 in range(*args[2]):
                     if printout:
-                        print(f'Testing params {param0}, {param1}, {param2}')
+                        print(f'Testing params {param0}, {param1}, {param2} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
                     backtest = single_backtest(price, strategy, param0, param1, param2)
                     params_list.append((param0, param1, param2))
                     trades_array.append(backtest['trades'])
@@ -580,7 +587,7 @@ def optimise_backtest(price, strategy, *args, printout=False):
         for param0 in range(*args[0]):
             for param1 in range(*args[1]):
                 if printout:
-                    print(f'Testing params {param0}, {param1}')
+                    print(f'Testing params {param0}, {param1} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
                 backtest = single_backtest(price, strategy, param0, param1)
                 params_list.append((param0, param1))
                 trades_array.append(backtest['trades'])
@@ -588,7 +595,7 @@ def optimise_backtest(price, strategy, *args, printout=False):
     else:
         for param0 in range(*args[0]):
             if printout:
-                print(f'Testing params {param0}')
+                print(f'Testing params {param0} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
             backtest = single_backtest(price, strategy, param0)
             params_list.append(param0)
             trades_array.append(backtest['trades'])
@@ -596,7 +603,7 @@ def optimise_backtest(price, strategy, *args, printout=False):
 
     return {'params': params_list, 'trades': trades_array, 'eq curves': eq_curves}
 
-def optimise_bt_multi(price, length_range, printout=False):
+def optimise_bt_multi_old(price, length_range, printout=False):
     lengths_list = []
     trades_array = []
     eq_curves = []
@@ -617,6 +624,65 @@ def optimise_bt_multi(price, length_range, printout=False):
 
     return {'lengths': lengths_list, 'trades': trades_array, 'eq curves': eq_curves}
 
+def optimise_bt_multi(price, strategy, *args, printout=False):
+    # TODO this is mostly rewritten but i haven't quite got it working yet
+    params_list = []
+    trades_array = []
+    eq_curves = []
+
+    if len(args) == 1:
+        param0 = list(range(*args[0]))
+        price_list = [price] * len(param0)
+        strat_list = [strategy] * len(param0)
+        arguments = zip(price_list, strat_list, param0)
+
+        if printout:
+            print(f'Optimising param range: {args[0]}')
+        with multiprocessing.Pool() as pool:
+            backtest = pool.starmap(single_backtest, arguments)  # returns list of dictionaries
+        for i in backtest:
+            params_list.append(i.get('params'))
+            trades_array.append(i.get('trades'))
+            eq_curves.append(i.get('equity curve'))
+
+    if len(args) == 2:
+        param0 = list(range(*args[0]))
+        param1 = list(range(*args[1]))
+        price_list = [price] * len(param0)
+        strat_list = [strategy] * len(param0)
+        arguments = zip(price_list, strat_list, param0, param1)
+
+        if printout:
+            print(f'Optimising param range: {args[0]}, {args[1]}')
+        with multiprocessing.Pool() as pool:
+            backtest = pool.starmap(single_backtest, arguments)  # returns list of dictionaries
+        for i in backtest:
+            params_list.append(i.get('params'))
+            trades_array.append(i.get('trades'))
+            eq_curves.append(i.get('equity curve'))
+
+    if len(args) == 3:
+        param0 = list(range(*args[0]))
+        param1 = list(range(*args[1]))
+        param2 = list(range(*args[2]))
+        price_list = [price] * len(param0)
+        strat_list = [strategy] * len(param0)
+        arguments = zip(price_list, strat_list, param0, param1, param2)
+
+        if printout:
+            print(f'Optimising param range: {args[0]}, {args[1]}, {args[2]}')
+        with multiprocessing.Pool() as pool:
+            backtest = pool.starmap(single_backtest, arguments)  # returns list of dictionaries
+        for i in backtest:
+            params_list.append(i.get('params'))
+            trades_array.append(i.get('trades'))
+            eq_curves.append(i.get('equity curve'))
+
+    else:
+        raise ValueError("Can't optimise more than 3 params")
+
+    return {'params': params_list, 'trades': trades_array, 'eq curves': eq_curves}
+
 def calc_stats_one(signals, days):
     equity_curve = signals.get('equity curve')
     if len(equity_curve) > 5 and statistics.stdev(equity_curve) > 0 and days > 0:
@@ -624,7 +690,6 @@ def calc_stats_one(signals, days):
         cash = equity_curve[-1]
         profit = (100 * (cash - startcash) / startcash)
 
-        # TODO this pnl_series calc is probably going to be a problem, work out what to do about divide by 0 errors
         pnl_series = [(equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1] for i in
                       range(1, len(equity_curve))]
         if len(pnl_series) > 1:  # to avoid StatisticsError: variance requires at least two data points
@@ -669,7 +734,6 @@ def calc_stats_many_old(signals, days, pair, timescale, strat, params, train_str
             cash = equity_curve[-1]
             profit = (100 * (cash - startcash) / startcash)
 
-            #TODO this pnl_series calc is probably going to be a problem, work out what to do about divide by 0 errors
             pnl_series = [(equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1] for i in range(1, len(equity_curve))]
             if len(pnl_series) > 1:  # to avoid StatisticsError: variance requires at least two data points
                 sqn = math.sqrt(len(equity_curve)) * statistics.mean(pnl_series) / statistics.stdev(pnl_series)
@@ -747,7 +811,6 @@ def calc_stats_many(signals, days, pair, timescale, strat, params, train_str=Non
             cash = equity_curve[-1]
             profit = (100 * (cash - startcash) / startcash)
 
-            #TODO this pnl_series calc is probably going to be a problem, work out what to do about divide by 0 errors
             pnl_series = [(equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1] for i in range(1, len(equity_curve))]
             if len(pnl_series) > 1:  # to avoid StatisticsError: variance requires at least two data points
                 sqn = math.sqrt(len(equity_curve)) * statistics.mean(pnl_series) / statistics.stdev(pnl_series)
@@ -908,7 +971,7 @@ def test_all_old(strat, printout=False):
             if len(r_vol) > 0:
                 low, hi, step = timescales.get(scale)
                 params = f'lengths{low}-{hi}-{step}'
-                backtest = optimise_bt_multi(r_price, timescales.get(scale), True)
+                backtest = optimise_bt_multi_old(r_price, timescales.get(scale), True)
                 # remember to target the right params with the above call
                 results = calc_stats_many_old(backtest, days, pair, scale, strat, params)
                 if printout:
@@ -946,8 +1009,10 @@ def test_all(strat, printout=False):
     print(f'Starting tests on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
     start = time.perf_counter()
 
+    ind_cache = {} # TODO calculate every indicator for every test first and cache each one here, to save doing them more than once.
+
     pairs = create_pairs_list('USDT')
-    pairs = ['TOMOBTC']
+    pairs = ['ETHBTC', 'BNBBTC']
     # timescales = ranges
 
     for pair in pairs:
@@ -1055,7 +1120,7 @@ def walk_forward(strat, printout=False):
                         price = main_price.iloc[from_index:to_index, :]
                         days = (len(price.index) / div)
                         backtest_range = timescales.get(scale)[:3]
-                        backtest = optimise_bt_multi(price, backtest_range)
+                        backtest = optimise_bt_multi_old(price, backtest_range)
                         results = calc_stats_many_old(backtest, days, pair, scale, strat, params, train_string, i)
                         if printout:
                             print(f'Tests recorded: {len(results.index)}')
@@ -1158,7 +1223,7 @@ def get_best_wide(metric, df_dict, long, short):
 
     return results # returns dict with keys: training set num, values: {hma length, date from, date to}
 
-# TODO if get_best outputs a length of -1, that means dont start trading yet, because no valid signal has been produced yet
+# if get_best outputs a length of -1, that means dont start trading yet, because no valid signal has been produced yet
 
 ### takes the results from get_best and stitches together a hma series from different hma lengths
 def aggregate_results(best, price):
@@ -1349,15 +1414,17 @@ def forward_run_all(strat, train_length, test_length, quote):
     seconds = round(end - start)
     print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
 
+# TODO put all functions in separate modules, strategies in one, utilities in another, scripts in another etc
+
 if __name__ == '__main__':
     # low, hi, step = (300, 1001, 50)'
     # params = f'lengths{low}-{hi}-{step}'
 
     # single_test('TOMOBTC', hma_dvb_strat, 187, 69, timescale='4h', printout=True)
 
-    # test_all('hma_dvb', True)
+    test_all('hma_dvb', printout=True)
 
-    walk_forward('hma_strat')
+    # walk_forward('hma_strat')
 
     # forward_run('hma_strat', 'ONTBTC', '4h', 1000, 12, 'lengths5-201-2', 'pnl per day')
 
