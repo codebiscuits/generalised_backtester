@@ -4,12 +4,8 @@ import matplotlib.pyplot as plt
 import math
 import statistics
 import time
-from finta import TA
-from finta.utils import resample
 import multiprocessing
-import talib
 from utilities import exp_range
-from config import ind_cache
 
 
 
@@ -65,260 +61,10 @@ ranges = {
         # '1min': ({'hma': (300, 1001, 50), 'dvb': (300, 1001, 100)}, 1440, 80000, 2000)
         }
 
-exp_ranges = {
-        # '1w': ({'hma': (2, 23, 20), 'dvb': (2, 23, 20)}, 0.142857, 50, 1),
-        # '3d': ({'hma': (3, 23, 20), 'dvb': (3, 23, 20)}, 0.333333, 50, 1),
-        '1d': ({'hma': (3, 443, 40), 'dvb': (3, 23, 20)}, 1, 90, 1),
-        '12h': ({'hma': (3, 200, 60), 'dvb': (3, 200, 20)}, 2, 360, 4),
-        '4h': ({'hma': (3, 400, 60), 'dvb': (3, 200, 20)}, 6, 1000, 12),
-        '1h': ({'hma': (3, 500, 60), 'dvb': (3, 300, 20)}, 24, 2000, 50),
-        '30min': ({'hma': (3, 500, 60), 'dvb': (3, 400, 20)}, 48, 3000, 75),
-        '15min': ({'hma': (3, 1000, 60), 'dvb': (3, 600, 20)}, 96, 6000, 150),
-        '5min': ({'hma': (3, 1000, 60), 'dvb': (3, 800, 20)}, 288, 18000, 450),
-        '1min': ({'hma': (3, 1000, 60), 'dvb': (3, 1000, 20)}, 1440, 80000, 2000)
-        }
+
 
 
 ### define functions
-
-def create_pairs_list(quote, source='ohlc'):
-    if source == 'ohlc':
-        stored_files_path = Path(f'V:/ohlc_data/')
-        files_list = list(stored_files_path.glob(f'*{quote}-1m-data.csv'))
-        pairs = [str(pair)[13:-12] for pair in files_list]
-    else:
-        folders_list = list(source.iterdir())
-        pairs = [str(pair.stem) for pair in folders_list]
-        pairs = [pair[-len(quote):] == quote for pair in pairs]
-
-
-    return pairs
-
-### get_dates calculates the index numbers for slicing the ohlc data to feed into the walk-forward testing function
-def get_dates(counter, long, short, set):
-    if set == 'train':
-        from_date = counter * short
-        to_date = from_date + long
-    elif set == 'test':
-        from_date = (counter * short) + long
-        to_date = from_date + short
-    return from_date, to_date
-
-### load ohlc data, returns two lists; price (ohlcv, close or avg) and volume
-def load_data(pair, mode='ohlcv'):
-    filepath = Path(f'V:/ohlc_data/{pair}-1m-data.csv')
-    data = pd.read_csv(filepath, index_col=0)
-
-    data.index = pd.to_datetime(data.index)
-
-    data['avg_price'] = (data['open'] + data['high'] + data['low'] + data['close']) / 4
-    close_price = list(data['close'])
-    avg_price = list(data['avg_price'])  # In live trading, this data can only be known at the close of each period. Potential source of look-ahead bias
-
-    vol = list(data['volume'])
-
-    if mode == 'ohlcv':
-        ohlcv_data = data[['open', 'high', 'low', 'close', 'volume']]
-        return ohlcv_data, vol
-    if mode == 'close':
-        return close_price, vol
-    if mode == 'avg':
-        return avg_price, vol
-
-def my_hma(ohlc, period, mode='close'):
-    if mode == 'close':
-        price = ohlc.loc[:, 'close']
-    else:
-        pass
-    fast_wma = talib.WMA(price, int(period/2))
-    slow_wma = talib.WMA(price, period)
-    diff = 2*fast_wma - slow_wma
-    hma = talib.WMA(diff, int(math.sqrt(period)))
-    # print(hma)
-    return hma
-
-def percentrank(data):
-    '''returns the percentage rank of the last value in the input (pandas series) compared to other values'''
-    ranked = data.rank(pct=True)
-    return ranked.iloc[-1]
-
-def dvb_calc(data, lb=50, p=2):
-    '''https://cssanalytics.wordpress.com/2009/07/29/differential-dv2-calculation/'''
-    data['comb'] = data['close'] / (data['high'] + data['low'])
-    data['avg'] = data['comb'].rolling(p).mean()
-    data['dvb'] = data['avg'].rolling(lb).apply(percentrank, raw=False)
-    data.drop(columns=['comb', 'avg'], axis=1, inplace=True)
-
-def dvb_calc_new(data, lb=50, p=2):
-    '''https://cssanalytics.wordpress.com/2009/07/29/differential-dv2-calculation/'''
-    data['comb'] = data['close'] / (data['high'] + data['low'])
-    data['avg'] = data['comb'].rolling(p).mean()
-    dvb = data['avg'].rolling(lb).apply(percentrank, raw=False)
-    data.drop(columns=['comb', 'avg'], axis=1, inplace=True)
-    return dvb
-
-def my_resample(price, vol, scale):
-    new_price = price.resample(scale)#.aggregate({'close': last(), 'volume': sum()})
-    # new_vol = list(price['volume'].resample(scale).sum())
-    new_vol = list(new_price['volume'])
-    return new_price, new_vol
-
-### takes in 1min price data and returns 5min, 15min, 30min, 1h, 4h, 12h, 1d, 3d, 1w price(ohlcv, close, mean or median) data
-def resample_ohlc(price, vol, scale, mode='ohlcv'):
-    timescales = {'5min': 5, '15min': 15, '30min': 30, '1h': 60, '4h': 240, '12h': 720, '1d': 1440, '3d': 4320, '1w': 10080}
-    t = timescales.get(scale)
-
-    if mode == 'ohlcv':
-        new_price = resample(price, scale)
-        new_vol = list(new_price.volume)
-
-    if mode == 'close':
-        new_price = []
-        new_vol = []
-        for i in range(int(len(price) / t)):
-            pos = i * t
-            p = price[pos + t - 1]
-            new_price.append(p)
-            v = sum(vol[pos:pos + t])
-            new_vol.append(v)
-    if mode == 'mean':
-        new_price = []
-        new_vol = []
-        for i in range(int(len(price) / t)):
-            pos = i * t
-            p = statistics.mean(price[pos:pos + t])
-            new_price.append(p)
-            v = sum(vol[pos:pos + t])
-            new_vol.append(v)
-    if mode == 'median':
-        new_price = []
-        new_vol = []
-        for i in range(int(len(price) / t)):
-            pos = i * t
-            p = statistics.median(price[pos:pos + t])
-            new_price.append(p)
-            v = sum(vol[pos:pos + t])
-            new_vol.append(v)
-
-    return new_price, new_vol
-
-### Hull moving average
-def hma_calc_old(price, length):
-    hma_list = list(TA.HMA(price, length))
-    return hma_list
-
-def hma_calc(price, length):
-    price['hma'] = TA.HMA(price, length)
-
-def hma_calc_new(price, length):
-    return TA.HMA(price, length)
-
-def hma_dvb_strat(price, args):
-    hma_len, dvb_lb = args
-
-    hma_calc(price, hma_len)
-    dvb_calc(price, dvb_lb)
-
-    prev = None
-    signals = []
-    colours = []
-    for i in range(len(price)):
-        if price.hma[i] > price.hma[i - 2] and price.hma[i - 1] > price.hma[i - 3] and price.dvb[i] < 0.25 and (prev == 'r' or prev == None):
-            signal = (i, 'b', price.close[i])
-            signals.append(signal)
-            colours.append('g')
-            prev = 'g'
-        elif price.hma[i] < price.hma[i - 2] and price.hma[i - 1] < price.hma[i - 3] and price.dvb[i] > 0.75 and (prev == 'g' or prev == None):
-            signal = (i, 's', price.close[i])
-            signals.append(signal)
-            colours.append('r')
-            prev = 'r'
-        else:
-            colours.append(prev)
-
-    price['bg_col'] = colours
-    return signals
-
-def hma_dvb_strat_new(price, args):
-    hma_len, dvb_lb = args
-
-    # print(f'hma_len: {hma_len}, dvb_lb: {dvb_lb}')
-
-    if hma_len in ind_cache['p1']:
-        price['hma'] = ind_cache['p1'].get(hma_len)
-    else:
-        hma = hma_calc_new(price, hma_len)
-        price['hma'] = hma
-        ind_cache['p1'][hma_len] = hma
-
-    if dvb_lb in ind_cache['p2']:
-        price['dvb'] = ind_cache['p2'].get(dvb_lb)
-    else:
-        dvb = dvb_calc_new(price, dvb_lb)
-        price['dvb'] = dvb
-        ind_cache['p2'][dvb_lb] = dvb
-
-    prev = None
-    signals = []
-    colours = []
-    for i in range(len(price)):
-        if price.hma[i] > price.hma[i - 2] and price.hma[i - 1] > price.hma[i - 3] and price.dvb[i] < 0.25 and (prev == 'r' or prev == None):
-            signal = (i, 'b', price.close[i])
-            signals.append(signal)
-            colours.append('g')
-            prev = 'g'
-        elif price.hma[i] < price.hma[i - 2] and price.hma[i - 1] < price.hma[i - 3] and price.dvb[i] > 0.75 and (prev == 'g' or prev == None):
-            signal = (i, 's', price.close[i])
-            signals.append(signal)
-            colours.append('r')
-            prev = 'r'
-        else:
-            colours.append(prev)
-
-    price['bg_col'] = colours
-    return signals
-
-# TODO write some risk management into the strategies, either trailing stop or fixed stop and tp
-
-### calls hma_calc to produce a list of tuples containing signals: (index, b/s, price)
-def hma_strat(price, length):
-    hma = hma_calc_old(price, length)
-
-    signals = []
-    for i in range(len(price)):
-        if hma[i] > hma[i-2] and hma[i-1] > hma[i-3]:
-            signal = (i, 'b', price)
-            signals.append(signal)
-        if hma[i] < hma[i-2] and hma[i-1] < hma[i-3]:
-            signal = (i, 's', price)
-            signals.append(signal)
-
-    return signals
-
-### calls aggregate_results to produce a list of tuples containing signals: (index, b/s, price)
-def hma_strat_forward(best, price):
-    start = time.perf_counter()
-    new_price, hma = aggregate_results(best, price)
-    # hma = aggregate_results_multi(best, price)
-    end = time.perf_counter()
-    total = end - start
-    print(f'agg results calculated in {total // 60}m {round(total % 60)}s')
-
-
-    signals = []
-    print(f'(hma_strat_fwd) len(price): {len(new_price)}, len(hma): {len(hma)}')
-    for i in range(len(hma)):
-        # print(f'i: {i}')
-        if hma[i] > hma[i-2] and hma[i-1] > hma[i-3]:
-            signal = (i, 'b')
-            signals.append(signal)
-        if hma[i] < hma[i-2] and hma[i-1] < hma[i-3]:
-            signal = (i, 's')
-            signals.append(signal)
-
-    return signals, new_price, hma
-
-#TODO create hma_dvb_strat and hma_dvb_strat_fwd
 
 ### backtest a single set of params
 def single_backtest_old(price, length, mode='norm', best=None, printout=False):
@@ -761,12 +507,13 @@ def optimise_bt_multi(price, strategy, *args, printout=False):
 
     return {'params': params_list, 'trades': trades_array, 'eq curves': eq_curves}
 
-def calc_stats_one(signals, days):
+def calc_stats_one(signals, days, hodl):
     equity_curve = signals.get('equity curve')
     if len(equity_curve) > 5 and statistics.stdev(equity_curve) > 0 and days > 0:
         startcash = 1000
         cash = equity_curve[-1]
         profit = (100 * (cash - startcash) / startcash)
+        profit_bth = profit / hodl
 
         pnl_series = [(equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1] for i in
                       range(1, len(equity_curve))]
@@ -787,7 +534,7 @@ def calc_stats_one(signals, days):
         trades_per_day = len(equity_curve) / days
         prof_per_day = profit / days #TODO this really should be using some kind of logarithm or something
 
-        print(f'{len(equity_curve)} round-trip trades, Profit: {profit:.6}%')
+        print(f'{len(equity_curve)} round-trip trades, Profit (better than hodl): {profit_bth:.3}%')
         print(f'SQN: {sqn:.3}, win rate: {winrate}%, avg trades/day: {trades_per_day:.3}, avg profit/day: {prof_per_day:.3}%')
         return {'sqn': round(sqn, 3), 'win rate': winrate, 'avg trades/day': round(trades_per_day, 3), 'avg profit/day': round(prof_per_day, 3)}
     else:
@@ -870,7 +617,7 @@ def calc_stats_many_old(signals, days, pair, timescale, strat, params, train_str
 
     return results_df
 
-def calc_stats_many(signals, days, pair, timescale, strat, params, train_str=None, set_num=None):
+def calc_stats_many(signals, days, pair, timescale, strat, params, hodl_profit, train_str=None, set_num=None):
     param_list = signals.get('params')
     new_param_list = []
     trad_list = []
@@ -888,6 +635,7 @@ def calc_stats_many(signals, days, pair, timescale, strat, params, train_str=Non
             startcash = 1000
             cash = equity_curve[-1]
             profit = (100 * (cash - startcash) / startcash)
+            profit_bth = profit / hodl_profit # profit better than hodl
 
             pnl_series = [(equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1] for i in range(1, len(equity_curve))]
             if len(pnl_series) > 1:  # to avoid StatisticsError: variance requires at least two data points
@@ -925,7 +673,7 @@ def calc_stats_many(signals, days, pair, timescale, strat, params, train_str=Non
 
             new_param_list.append(param_list[x])
             trad_list.append(len(equity_curve))
-            prof_list.append(round(profit, 4))
+            prof_list.append(round(profit_bth, 3))
             sqn_list.append(round(sqn, 3))
             winrate_list.append(round(winrate))
             avg_rr_list.append(round(avg_rr, 3))
@@ -933,7 +681,7 @@ def calc_stats_many(signals, days, pair, timescale, strat, params, train_str=Non
             tpd_list.append(round(trades_per_day, 3))
             ppd_list.append(round(prof_per_day, 3))
 
-    results = {'params': new_param_list, 'num trades': trad_list, 'profit': prof_list, 'sqn': sqn_list,
+    results = {'params': new_param_list, 'num trades': trad_list, 'profit bth': prof_list, 'sqn': sqn_list,
                'win rate': winrate_list, 'avg rr': avg_rr_list,# 'avg loss': avg_loss_list,
                'trades per day': tpd_list, 'pnl per day': ppd_list}
     results_df = pd.DataFrame(results)
@@ -988,151 +736,12 @@ def draw_ohlc(data, price, hma_stitch):
     f.tight_layout()
     plt.show()
 
-def single_test_old(pair, length, timescale='1min', printout=False):
-    print(f'Starting single_test on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
-    start = time.perf_counter()
-
-    price, vol = load_data(pair)
-    days = len(vol) / 1440
-    if timescale != '1min':
-        price, vol = resample_ohlc(price, vol, timescale)
-    backtest = single_backtest_old(price, length)
-    if printout:
-        print(backtest)
-    calc_stats_one(backtest, days)
-    draw_ohlc(backtest, price, pair)
-    # plot_eq(backtest.get('equity curve'), pair, 'sqn')
-
-    end = time.perf_counter()
-    seconds = round(end - start)
-    print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
-
-def single_test(pair, strategy, *args, timescale='1min', printout=False):
-    print(f'Starting single_test on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
-    start = time.perf_counter()
-
-    price, vol = load_data(pair)
-    days = len(vol) / 1440
-    if timescale != '1min':
-        price, vol = resample_ohlc(price, vol, timescale)
-    backtest = single_backtest(price, strategy, *args)
-    if printout:
-        print(backtest)
-    calc_stats_one(backtest, days)
-    draw_ohlc(backtest, price, pair)
-    # plot_eq(backtest.get('equity curve'), pair, 'sqn')
-
-    end = time.perf_counter()
-    seconds = round(end - start)
-    print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
-
-# def test_all_old(strat, printout=False):
-#     '''
-#     Cycles through all pairs and all timescales, each time producing a dictionary of results for a range of param settings
-#     Saves these dictionaries as dataframes in csv files for further analysis
-#     Prints best result (according to sqn score) for each pair in each timescale
-#     '''
-#
-#     print(f'Starting tests on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
-#     start = time.perf_counter()
-#
-#     pairs = create_pairs_list('USDT')
-#     pairs = ['ETHBTC']
-#     timescales = backtest_ranges
-#
-#     for pair in pairs:
-#         print(f'Testing {pair}')
-#         price, vol = load_data(pair)
-#         days = len(vol) / 1440
-#         for scale in timescales.keys():
-#             print(f'Testing {scale}')
-#             if scale != '1min':
-#                 r_price, r_vol = resample_ohlc(price, vol, scale)
-#             else:
-#                 r_price, r_vol = price, vol
-#             if len(r_vol) > 0:
-#                 low, hi, step = timescales.get(scale)
-#                 params = f'lengths{low}-{hi}-{step}'
-#                 backtest = optimise_bt_multi_old(r_price, timescales.get(scale), True)
-#                 # remember to target the right params with the above call
-#                 results = calc_stats_many_old(backtest, days, pair, scale, strat, params)
-#                 if printout:
-#                     print(f'Tests recorded: {len(results.index)}')
-#                 if len(results.index) > 0 and results["sqn"].max() > 2:
-#                     if printout:
-#                         print(f'Best SQN: {results["sqn"].max()}')
-#                     best = results['sqn'].argmax()
-#                     if printout:
-#                         print(f'Best settings: {results.iloc[best]}')
-#             if printout:
-#                 print('-' * 40)
-#         mid = time.perf_counter()
-#         seconds = round(mid - start)
-#         print(f'{pair} took: {seconds // 60} minutes, {seconds % 60} seconds')
-#
-#     end = time.perf_counter()
-#     seconds = round(end - start)
-#     print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
-
-# def test_all(strat, printout=False):
-#     '''
-#     Cycles through all pairs and all timescales, each time producing a dictionary of results for a range of param settings
-#     Saves these dictionaries as dataframes in csv files for further analysis
-#     Prints best result (according to sqn score) for each pair in each timescale
-#     '''
-#
-#     strat_dict = {'hma': {'name': 'hma_strat', 'func': hma_strat, 'params': ['hma']},
-#                   'hma_dvb': {'name': 'hma_dvb', 'func': hma_dvb_strat, 'params': ['hma', 'dvb']},
-#                   }
-#     strategy = strat_dict.get(strat)
-#     name = strategy.get('name')
-#     func = strategy.get('func')
-#
-#     print(f'Starting tests on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
-#     start = time.perf_counter()
-#
-#     ind_cache = {} # TODO calculate every indicator for every test first and cache each one here, to save doing them more than once.
-#
-#     pairs = create_pairs_list('USDT')
-#     pairs = ['ETHBTC', 'BNBBTC']
-#     pairs = ['CRVBTC']
-#     # timescales = ranges
-#
-#     for pair in pairs:
-#         print(f'Testing {pair}')
-#         price, vol = load_data(pair)
-#         days = len(vol) / 1440
-#         for timescale in exp_ranges.keys():
-#             print(f'Testing {timescale}')
-#             all_param_ranges = exp_ranges.get(timescale)[0]
-#             param_ranges = {k:v for (k, v) in all_param_ranges.items() if k in strat_dict.get(strat)['params']}
-#             params = tuple(param_ranges.values()) # *args for optimise_backtest
-#             param_str_list = [f'{k}_{v[0]}-{v[1]}-{v[2]}' for (k, v) in param_ranges.items()]
-#             param_str = '_'.join(param_str_list)
-#             if timescale != '1min':
-#                 r_price, r_vol = resample_ohlc(price, vol, timescale)
-#             else:
-#                 r_price, r_vol = price, vol
-#             if len(r_vol) > 0:
-#                 backtest = optimise_backtest(r_price, func, *params, printout=True)
-#                 results = calc_stats_many(backtest, days, pair, timescale, name, param_str)
-#                 if printout:
-#                     print(f'Tests recorded: {len(results.index)}')
-#                 if len(results.index) > 0 and results["sqn"].max() > 2:
-#                     if printout:
-#                         print(f'Best SQN: {results["sqn"].max()}')
-#                     best = results['sqn'].argmax()
-#                     if printout:
-#                         print(f'Best settings: {results.iloc[best]}')
-#             if printout:
-#                 print('-' * 40)
-#         mid = time.perf_counter()
-#         seconds = round(mid - start)
-#         print(f'{pair} took: {seconds // 60} minutes, {seconds % 60} seconds')
-#
-#     end = time.perf_counter()
-#     seconds = round(end - start)
-#     print(f'Time taken: {seconds // 60} minutes, {seconds % 60} seconds')
+def hodl_profit(data):
+    '''Calculates the percentage profit from holding the asset from the beginning to the end of the data being tested,
+    for the purpose of comparing to strategy results from the same data'''
+    first_open = data.iloc[0, 0]
+    last_close = data.iloc[-1, 3]
+    return round(100 * (last_close - first_open) / first_open, 3)
 
 def walk_forward(strat, printout=False):
     print(f'Starting tests on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
@@ -1310,6 +919,7 @@ def get_best_wide(metric, df_dict, long, short):
 
 ### takes the results from get_best and stitches together a hma series from different hma lengths
 def aggregate_results(best, price):
+    # this function replaces hma_calc as it outputs a series of hma values which can be used to generate signals
 
     prev = 0
     from_list = []
@@ -1365,8 +975,6 @@ def aggregate_results(best, price):
 
     return new_price, stitch
 
-    # TODO this function replaces hma_calc as it outputs a series of hma values which can be used to generate signals
-
 ### multiprocessing version of aggregate_results
 def aggregate_results_multi(best, price):
     # print(f'best.keys(): {best.keys()}')
@@ -1408,15 +1016,6 @@ def aggregate_results_multi(best, price):
         print(f'\nprice is longer than stitch by {len(price) - len(stitch)}\n')
 
     return price, stitch
-
-def plot_eq(eq_curve, pair, metric):
-    plt.plot(eq_curve)
-
-    plt.xlabel('Trades')
-    plt.ylabel('Equity')
-    plt.yscale('log')
-    plt.title(f'{pair} optimised by {metric}')
-    plt.show()
 
 def forward_run(strat, pair, timescale, train_length, test_length, params, metric, single_run=True, printout=False):
     # TODO train_length, test_length and params can all be pulled automatically from the folder structure
@@ -1500,24 +1099,20 @@ def forward_run_all(strat, train_length, test_length, quote):
 # TODO put all functions in separate modules, strategies in one, utilities in another, scripts in another etc
 
 if __name__ == '__main__':
-    # low, hi, step = (300, 1001, 50)'
-    # params = f'lengths{low}-{hi}-{step}'
 
-    single_test('BTCUSDT', hma_dvb_strat, 3, 280, timescale='30min', printout=True)
+    walk_forward('hma_strat')
 
-    # walk_forward('hma_strat')
+    forward_run('hma_strat', 'ONTBTC', '4h', 1000, 12, 'lengths5-201-2', 'pnl per day')
 
-    # forward_run('hma_strat', 'ONTBTC', '4h', 1000, 12, 'lengths5-201-2', 'pnl per day')
-
-    # print('Starting Forward Run Loop')
-    # results = {}
-    # pairs = ['BNBBTC', 'ETHBTC', 'ICXBTC', 'ONTBTC', 'ZILBTC']
-    # metrics = ['sqn', 'win rate', 'pnl per day']
-    # for pair in pairs:
-    #     pair_dict = {}
-    #     for metric in metrics:
-    #         res = forward_run('hma_strat', pair, '4h', 1000, 12, 'lengths5-201-2', metric, single_run=False)
-    #         pair_dict['metric'] = res
-    #         print(f'Optimising {pair} by {metric} produced an SQN of {res.get("sqn")}')
-    #         print('\n', '-' * 80, '\n')
-    #     results['pair'] = pair_dict
+    print('Starting Forward Run Loop')
+    results = {}
+    pairs = ['BNBBTC', 'ETHBTC', 'ICXBTC', 'ONTBTC', 'ZILBTC']
+    metrics = ['sqn', 'win rate', 'pnl per day']
+    for pair in pairs:
+        pair_dict = {}
+        for metric in metrics:
+            res = forward_run('hma_strat', pair, '4h', 1000, 12, 'lengths5-201-2', metric, single_run=False)
+            pair_dict['metric'] = res
+            print(f'Optimising {pair} by {metric} produced an SQN of {res.get("sqn")}')
+            print('\n', '-' * 80, '\n')
+        results['pair'] = pair_dict
