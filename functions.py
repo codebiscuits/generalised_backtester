@@ -406,6 +406,7 @@ def optimise_backtest(price, strategy, *args, printout=False):
                         print(f'{pct_tests}% completed on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}. '
                               f'Time taken: {int(split_time/60)}m {split_time%60}s')
                         new_mod = False
+                        opt_start = time.perf_counter()
     elif len(args) == 2:
         total_tests = len(exp_range(*args[0])) * len(exp_range(*args[1]))
         opt_start = time.perf_counter()
@@ -429,6 +430,7 @@ def optimise_backtest(price, strategy, *args, printout=False):
                     print(f'{pct_tests}% completed on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}. '
                           f'Time taken: {int(split_time/60)}m {split_time%60}s')
                     new_mod = False
+                    opt_start = time.perf_counter()
     else:
         total_tests = len(exp_range(*args[0]))
         opt_start = time.perf_counter()
@@ -451,6 +453,7 @@ def optimise_backtest(price, strategy, *args, printout=False):
                 print(f'{pct_tests}% completed on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}. '
                       f'Time taken: {int(split_time/60)}m {split_time%60}s')
                 new_mod = False
+                opt_start = time.perf_counter()
 
     return {'params': params_list, 'trades': trades_array, 'eq curves': eq_curves}
 
