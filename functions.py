@@ -384,46 +384,73 @@ def optimise_backtest(price, strategy, *args, printout=False):
         raise ValueError("Can't optimise more than 3 params")
     elif len(args) == 3:
         total_tests = len(exp_range(*args[0])) * len(exp_range(*args[1])) * len(exp_range(*args[2]))
-        pct_tests = round(total_tests/10)
+        opt_start = time.perf_counter()
+        new_mod = False
         for param0 in exp_range(*args[0]):
             for param1 in exp_range(*args[1]):
                 for param2 in exp_range(*args[2]):
-                    test_count += 1
-                    if test_count % pct_tests == 0:
-                        print(f'performing test {test_count} of {total_tests}')
                     if printout:
                         print(f'Testing params {param0}, {param1}, {param2} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
                     backtest = single_backtest(price, strategy, param0, param1, param2)
                     params_list.append((param0, param1, param2))
                     trades_array.append(backtest['trades'])
                     eq_curves.append(backtest['equity curve'])
+                    opt_split = time.perf_counter()
+                    split_time = round(opt_split-opt_start)
+                    test_count += 1
+                    pct_tests = round(100*test_count/total_tests)
+                    mod_pct = 10
+                    if pct_tests % mod_pct == 1:
+                        new_mod = True
+                    if pct_tests % mod_pct == 0 and new_mod:
+                        print(f'{pct_tests}% completed on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}. '
+                              f'Time taken: {int(split_time/60)}m {split_time%60}s')
+                        new_mod = False
     elif len(args) == 2:
         total_tests = len(exp_range(*args[0])) * len(exp_range(*args[1]))
-        pct_tests = round(total_tests/10)
+        opt_start = time.perf_counter()
+        new_mod = False
         for param0 in exp_range(*args[0]):
             for param1 in exp_range(*args[1]):
-                test_count += 1
-                if test_count % pct_tests == 0:
-                    print(f'performing test {test_count} of {total_tests}')
                 if printout:
                     print(f'Testing params {param0}, {param1} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
                 backtest = single_backtest(price, strategy, param0, param1)
                 params_list.append((param0, param1))
                 trades_array.append(backtest['trades'])
                 eq_curves.append(backtest['equity curve'])
+                opt_split = time.perf_counter()
+                split_time = round(opt_split-opt_start)
+                test_count += 1
+                pct_tests = round(100*test_count/total_tests)
+                mod_pct = 10
+                if pct_tests % mod_pct == 1:
+                    new_mod = True
+                if pct_tests % mod_pct == 0 and new_mod:
+                    print(f'{pct_tests}% completed on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}. '
+                          f'Time taken: {int(split_time/60)}m {split_time%60}s')
+                    new_mod = False
     else:
         total_tests = len(exp_range(*args[0]))
-        pct_tests = round(total_tests/10)
+        opt_start = time.perf_counter()
+        new_mod = False
         for param0 in exp_range(*args[0]):
-            test_count += 1
-            if test_count % pct_tests == 0:
-                print(f'performing test {test_count} of {total_tests}')
             if printout:
                 print(f'Testing params {param0} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
             backtest = single_backtest(price, strategy, param0)
             params_list.append(param0)
             trades_array.append(backtest['trades'])
             eq_curves.append(backtest['equity curve'])
+            opt_split = time.perf_counter()
+            split_time = round(opt_split-opt_start)
+            test_count += 1
+            pct_tests = round(100*test_count/total_tests)
+            mod_pct = 10
+            if pct_tests % mod_pct == 1:
+                new_mod = True
+            if pct_tests % mod_pct == 0 and new_mod:
+                print(f'{pct_tests}% completed on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}. '
+                      f'Time taken: {int(split_time/60)}m {split_time%60}s')
+                new_mod = False
 
     return {'params': params_list, 'trades': trades_array, 'eq curves': eq_curves}
 

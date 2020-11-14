@@ -47,13 +47,12 @@ for pair in pairs:
             if printout:
                 print(f'Tests recorded: {len(results.index)}')
             if len(results.index) > 0 and results["sqn"].max() > 2:
-                if printout:
-                    print(f'Best SQN: {results["sqn"].max()}')
                 best = results['sqn'].argmax()
                 if printout:
-                    print(f'Best settings: {results.iloc[best]}')
+                    print(f'Best SQN: {results["sqn"].max()}, Best settings: {results.iloc[best, 0]}')
         ts_end = time.perf_counter()
         print(f'{pair} {timescale} took {round((ts_end-ts_start)/60)}m {round((ts_end-ts_start)%60)}s')
+        print('-' * 80)
     mid = time.perf_counter()
     seconds = round(mid - start)
     print(f'{pair} took: {seconds // 60} minutes, {seconds % 60} seconds')
