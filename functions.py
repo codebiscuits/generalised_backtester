@@ -6,6 +6,7 @@ import statistics
 import time
 import multiprocessing
 from utilities import exp_range
+from config import ind_cache
 
 
 
@@ -376,8 +377,8 @@ def optimise_backtest(price, strategy, *args, printout=False):
     trades_array = []
     eq_curves = []
 
-    global ind_cache
-    ind_cache = {'p1': {}, 'p2': {}, 'p3': {}}
+    # global ind_cache # this line and the next just clear ind_cache ready for the next set of tests
+    # ind_cache = {'p1': {}, 'p2': {}, 'p3': {}}
     test_count = 0
 
     if len(args) > 3:
@@ -499,12 +500,18 @@ def optimise_bt_multi(price, strategy, *args, printout=False):
             trades_array.append(i.get('trades'))
             eq_curves.append(i.get('equity curve'))
 
-    if len(args) == 2:
+    elif len(args) == 2:
         param0 = exp_range(*args[0])
         param1 = exp_range(*args[1])
-        price_list = [price] * len(param0)
-        strat_list = [strategy] * len(param0)
-        arguments = zip(price_list, strat_list, param0, param1)
+        p0_list = []
+        p1_list = []
+        for p0 in param0:
+            for p1 in param1:
+                p0_list.append(p0)
+                p1_list.append(p1)
+        price_list = [price] * len(p0_list)
+        strat_list = [strategy] * len(p0_list)
+        arguments = zip(price_list, strat_list, p0_list, p1_list)
 
         if printout:
             print(f'Optimising param range: {args[0]}, {args[1]}')
@@ -515,10 +522,19 @@ def optimise_bt_multi(price, strategy, *args, printout=False):
             trades_array.append(i.get('trades'))
             eq_curves.append(i.get('equity curve'))
 
-    if len(args) == 3:
+    elif len(args) == 3:
         param0 = exp_range(*args[0])
         param1 = exp_range(*args[1])
         param2 = exp_range(*args[2])
+        p0_list = []
+        p1_list = []
+        p2_list = []
+        for p0 in param0:
+            for p1 in param1:
+                for p2 in param2:
+                    p0_list.append(p0)
+                    p1_list.append(p1)
+                    p2_list.append(p2)
         price_list = [price] * len(param0)
         strat_list = [strategy] * len(param0)
         arguments = zip(price_list, strat_list, param0, param1, param2)
@@ -721,7 +737,7 @@ def calc_stats_many(signals, days, pair, timescale, strat, params, hodl_profit, 
 
         res_name = Path(f'{set_num}.csv')
     else:
-        res_path = Path(f'V:/results/{strat}/backtest/{pair}/{timescale}')
+        res_path = Path(f'V:/results/{strat}/backtest_multi/{pair}/{timescale}')
         res_name = Path(f'{params}.csv')
 
     res_path.mkdir(parents=True, exist_ok=True)

@@ -22,7 +22,7 @@ if __name__ == '__main__':
     start = time.perf_counter()
 
     pairs = create_pairs_list('BTC')
-    pairs = ['CRVBTC']
+    pairs = ['BTCUSDT', 'ETHBTC', 'BNBBTC', 'ETHUSDT', 'BNBUSDT', 'XMRBTC']
 
     for pair in pairs:
         print(f'Testing {pair} on {time.ctime()[:3]} {time.ctime()[9]} at {time.ctime()[11:-8]}')
@@ -44,7 +44,12 @@ if __name__ == '__main__':
             else:
                 r_price, r_vol = price, vol
             if len(r_vol) > 0:
-                backtest = optimise_backtest(r_price, strat_func, *params)
+                # print(ind_cache)
+                backtest = optimise_bt_multi(r_price, strat_func, *params)
+                # print(ind_cache.get('p1').keys())
+                # ind_cache['p1'] = {}
+                # ind_cache['p2'] = {}
+                # ind_cache['p3'] = {}
                 results = calc_stats_many(backtest, days, pair, timescale, name, param_str, hodl_profit)
                 if printout:
                     print(f'Tests recorded: {len(results.index)}')

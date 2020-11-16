@@ -6,7 +6,7 @@ from functions import single_backtest, calc_stats_one, draw_ohlc, hodl_profit
 
 pair = 'BNBBTC'
 strat = hma_dvb_strat_new
-args = 50, 60
+args = 37, 165
 timescale='1h'
 print_all=False
 

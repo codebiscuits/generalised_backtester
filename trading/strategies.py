@@ -29,6 +29,7 @@ def hma_dvb_strat(price, args):
     return signals
 
 def hma_dvb_strat_new(price, args):
+    global ind_cache
     hma_len, dvb_lb = args
 
     # print(f'hma_len: {hma_len}, dvb_lb: {dvb_lb}')
